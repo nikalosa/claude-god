@@ -2,7 +2,7 @@
 
 `claude-god` = umbrella for Claude Code tooling experiments. First tool: `claude-validator` — A/B benchmarks CLAUDE.md context configs for behavioral-fidelity regressions.
 
-Full design + locked decisions in @PRD.md — read when needed, never restate here.
+Full design + locked decisions in @docs/PRD.md — read when needed, never restate here.
 
 Principles:
 - Be extremely concise. Sacrifice grammar for the sake of concision.
