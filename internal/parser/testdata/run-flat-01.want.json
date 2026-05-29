@@ -1,0 +1,38 @@
+{
+  "session_id": "a4ba7344-d8c6-461c-bb45-044095af20fb",
+  "model": "claude-opus-4-8[1m]",
+  "cwd": "/Users/nikalosa/Desktop/claude-god",
+  "final_text": "claude-validator A/B-benchmarks two CLAUDE.md context configurations (before vs. after a restructure) to verify Claude still recalls and applies every critical rule, while quantifying token/cost/time savings — so context can be trimmed without silently dropping rules.",
+  "stop_reason": "end_turn",
+  "is_error": false,
+  "num_turns": 1,
+  "timing": {
+    "duration_ms": 3227,
+    "duration_api_ms": 4340,
+    "ttft_ms": 3157
+  },
+  "usage": {
+    "input_tokens": 3800,
+    "output_tokens": 90,
+    "cache_creation_input_tokens": 11744,
+    "cache_read_input_tokens": 17308
+  },
+  "total_cost_usd": 0.103823,
+  "model_usage": {
+    "claude-haiku-4-5-20251001": {
+      "input_tokens": 449,
+      "output_tokens": 14,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cost_usd": 0.000519
+    },
+    "claude-opus-4-8[1m]": {
+      "input_tokens": 3800,
+      "output_tokens": 90,
+      "cache_creation_input_tokens": 11744,
+      "cache_read_input_tokens": 17308,
+      "cost_usd": 0.10330399999999999
+    }
+  },
+  "tool_calls": []
+}
