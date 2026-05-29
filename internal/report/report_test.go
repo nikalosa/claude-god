@@ -102,6 +102,43 @@ func TestRenderMarkdown_PreferenceSection(t *testing.T) {
 	}
 }
 
+func TestRenderCalibration(t *testing.T) {
+	verdicts := []aggregator.Verdict{
+		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
+		{ProbeID: "p1", RuleID: "flipped", Severity: dsl.Critical, Before: side(true, 3, 3), After: side(false, 0, 3), Status: aggregator.Regression},
+	}
+	md := RenderCalibration(verdicts, aggregator.Deltas{})
+
+	if !strings.Contains(md, "# claude-validator calibration") {
+		t.Errorf("missing calibration title:\n%s", md)
+	}
+	if !strings.Contains(md, "Noise floor: 1 of 2") {
+		t.Errorf("missing/incorrect noise floor:\n%s", md)
+	}
+	if !strings.Contains(md, "`flipped`") {
+		t.Errorf("flaky rule not listed:\n%s", md)
+	}
+	if strings.Contains(md, "`stable`") {
+		t.Errorf("a clean rule must not appear in the flaky list:\n%s", md)
+	}
+	if !strings.Contains(md, "## Numbers spread") {
+		t.Errorf("missing Numbers spread section:\n%s", md)
+	}
+}
+
+func TestRenderCalibration_CleanFloor(t *testing.T) {
+	verdicts := []aggregator.Verdict{
+		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
+	}
+	md := RenderCalibration(verdicts, aggregator.Deltas{})
+	if !strings.Contains(md, "Noise floor: 0 of 1") {
+		t.Errorf("expected clean floor:\n%s", md)
+	}
+	if !strings.Contains(md, "_none — clean noise floor_") {
+		t.Errorf("expected clean-floor marker:\n%s", md)
+	}
+}
+
 func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
 	md := RenderMarkdown(nil, nil, aggregator.Deltas{})
 	if strings.Contains(md, "What reads better") {

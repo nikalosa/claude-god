@@ -232,6 +232,21 @@ func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
 	return d
 }
 
+// Flaky returns the verdicts that are NOT cleanly stable on an identical
+// Environment (a Before-vs-Before calibration): a rule that flipped
+// (Regression/NewPass) despite no real change, or one whose N samples disagreed
+// in either env. This is the noise floor a real Before-vs-After comparison
+// stands on.
+func Flaky(vs []Verdict) []Verdict {
+	var out []Verdict
+	for _, v := range vs {
+		if v.Status == Regression || v.Status == NewPass || v.Before.Disagreement || v.After.Disagreement {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func HasCriticalRegression(vs []Verdict) bool {
 	for _, v := range vs {
 		if v.Severity == dsl.Critical && v.Status == Regression {

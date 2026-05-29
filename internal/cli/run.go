@@ -61,29 +61,10 @@ var runCmd = &cobra.Command{
 		}
 
 		ctx := context.Background()
-		aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
-		var prefs []runner.PreferenceResult
-		for _, probe := range probes {
-			beforeRecs, err := sampleN(ctx, target, flagBefore, probe, flagSamples)
-			if err != nil {
-				return fmt.Errorf("probe %s before: %w", probe.ID, err)
-			}
-			afterRecs, err := sampleN(ctx, target, flagAfter, probe, flagSamples)
-			if err != nil {
-				return fmt.Errorf("probe %s after: %w", probe.ID, err)
-			}
-			agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs, afterRecs, j)
-			if err != nil {
-				return fmt.Errorf("probe %s: %w", probe.ID, err)
-			}
-			aggs = append(aggs, agg)
-			if pref != nil {
-				prefs = append(prefs, *pref)
-			}
+		verdicts, prefs, deltas, err := runBenchmark(ctx, target, probes, flagBefore, flagAfter, flagSamples, flagNoMemSnapshot, j)
+		if err != nil {
+			return err
 		}
-
-		verdicts := aggregator.Compare(aggs)
-		deltas := aggregator.ComputeDeltas(aggs)
 		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas))
 
 		if aggregator.HasCriticalRegression(verdicts) {
@@ -142,9 +123,36 @@ func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
+// runBenchmark samples every probe on the before and after branches, grades
+// each, and returns the verdicts, open-ended preferences, and Numbers. Shared
+// by run and calibrate (calibrate passes the same branch on both sides).
+func runBenchmark(ctx context.Context, target string, probes []dsl.Probe, before, after string, samples int, noMem bool, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, aggregator.Deltas, error) {
+	aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
+	var prefs []runner.PreferenceResult
+	for _, probe := range probes {
+		beforeRecs, err := sampleN(ctx, target, before, probe, samples, noMem)
+		if err != nil {
+			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s before: %w", probe.ID, err)
+		}
+		afterRecs, err := sampleN(ctx, target, after, probe, samples, noMem)
+		if err != nil {
+			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s after: %w", probe.ID, err)
+		}
+		agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs, afterRecs, j)
+		if err != nil {
+			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s: %w", probe.ID, err)
+		}
+		aggs = append(aggs, agg)
+		if pref != nil {
+			prefs = append(prefs, *pref)
+		}
+	}
+	return aggregator.Compare(aggs), prefs, aggregator.ComputeDeltas(aggs), nil
+}
+
 // sampleN runs one probe n times on a branch and collects the run records;
 // grading is the runner's job, so the live harness loop stays free of it.
-func sampleN(ctx context.Context, target, branch string, probe dsl.Probe, n int) ([]*parser.RunRecord, error) {
+func sampleN(ctx context.Context, target, branch string, probe dsl.Probe, n int, noMem bool) ([]*parser.RunRecord, error) {
 	records := make([]*parser.RunRecord, 0, n)
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(os.Stderr, "probe %s: sample %d/%d on %s\n", probe.ID, i+1, n, branch)
@@ -152,7 +160,7 @@ func sampleN(ctx context.Context, target, branch string, probe dsl.Probe, n int)
 			TargetRepo:    target,
 			Branch:        branch,
 			Prompt:        probe.Prompt,
-			NoMemSnapshot: flagNoMemSnapshot,
+			NoMemSnapshot: noMem,
 		})
 		if err != nil {
 			return nil, err

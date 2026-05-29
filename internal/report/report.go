@@ -46,15 +46,7 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 
 	renderPreferences(&b, prefs)
 
-	fmt.Fprintln(&b, "## Cost / token / time deltas (medians, summed across probes)")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Metric | Before | After | Δ |")
-	fmt.Fprintln(&b, "|---|---:|---:|---:|")
-	fmt.Fprintf(&b, "| Total cost (USD) | %.6f | %.6f | %s |\n", d.CostBefore, d.CostAfter, deltaPct(d.CostBefore, d.CostAfter))
-	fmt.Fprintf(&b, "| Input tokens | %d | %d | %s |\n", d.InputTokBefore, d.InputTokAfter, deltaIntPct(d.InputTokBefore, d.InputTokAfter))
-	fmt.Fprintf(&b, "| Output tokens | %d | %d | %s |\n", d.OutputTokBefore, d.OutputTokAfter, deltaIntPct(d.OutputTokBefore, d.OutputTokAfter))
-	fmt.Fprintf(&b, "| Duration (ms) | %d | %d | %s |\n", d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
-	fmt.Fprintln(&b)
+	renderDeltas(&b, "Cost / token / time deltas (medians, summed across probes)", d)
 
 	if len(others) > 0 {
 		fmt.Fprintln(&b, "## Other verdicts")
@@ -68,6 +60,59 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 	}
 
 	return b.String()
+}
+
+// RenderCalibration renders a Before-vs-Before noise-floor report: the rules
+// that came out flaky on an identical Environment (the false-positive rate a
+// real comparison stands on), plus the Numbers spread. Never gates.
+func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas) string {
+	flaky := aggregator.Flaky(verdicts)
+	sort.Slice(flaky, func(i, j int) bool {
+		if flaky[i].ProbeID != flaky[j].ProbeID {
+			return flaky[i].ProbeID < flaky[j].ProbeID
+		}
+		return flaky[i].RuleID < flaky[j].RuleID
+	})
+
+	var b strings.Builder
+	fmt.Fprintln(&b, "# claude-validator calibration (Before vs Before)")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Noise floor: %d of %d rules flaky on an identical Environment.\n", len(flaky), len(verdicts))
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "## Flaky rules")
+	fmt.Fprintln(&b)
+	if len(flaky) == 0 {
+		fmt.Fprintln(&b, "_none — clean noise floor_")
+	} else {
+		for _, v := range flaky {
+			fmt.Fprintf(&b, "- **[%s]** `%s` (%s) — %s → %s [%s]\n",
+				v.ProbeID, v.RuleID, v.Severity, fmtSide(v.Before), fmtSide(v.After), flakyReason(v))
+		}
+	}
+	fmt.Fprintln(&b)
+
+	renderDeltas(&b, "Numbers spread (medians, summed across probes)", d)
+	return b.String()
+}
+
+func flakyReason(v aggregator.Verdict) string {
+	if v.Status == aggregator.Regression || v.Status == aggregator.NewPass {
+		return "flipped on identical input"
+	}
+	return "samples disagreed"
+}
+
+func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas) {
+	fmt.Fprintln(b, "## "+title)
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "| Metric | Before | After | Δ |")
+	fmt.Fprintln(b, "|---|---:|---:|---:|")
+	fmt.Fprintf(b, "| Total cost (USD) | %.6f | %.6f | %s |\n", d.CostBefore, d.CostAfter, deltaPct(d.CostBefore, d.CostAfter))
+	fmt.Fprintf(b, "| Input tokens | %d | %d | %s |\n", d.InputTokBefore, d.InputTokAfter, deltaIntPct(d.InputTokBefore, d.InputTokAfter))
+	fmt.Fprintf(b, "| Output tokens | %d | %d | %s |\n", d.OutputTokBefore, d.OutputTokAfter, deltaIntPct(d.OutputTokBefore, d.OutputTokAfter))
+	fmt.Fprintf(b, "| Duration (ms) | %d | %d | %s |\n", d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
+	fmt.Fprintln(b)
 }
 
 // renderPreferences renders the open-ended "what reads better" section. It is

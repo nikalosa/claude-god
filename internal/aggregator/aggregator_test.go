@@ -153,6 +153,38 @@ func TestComputeDeltas_Medians(t *testing.T) {
 	}
 }
 
+func TestFlaky(t *testing.T) {
+	mk := func(id string, status Status, beforeDis, afterDis bool) Verdict {
+		return Verdict{
+			RuleID: id, Status: status,
+			Before: VerdictSide{Disagreement: beforeDis},
+			After:  VerdictSide{Disagreement: afterDis},
+		}
+	}
+	vs := []Verdict{
+		mk("clean_pass", Stable, false, false),
+		mk("clean_fail", StableFail, false, false),
+		mk("flipped", Regression, false, false),
+		mk("newpass", NewPass, false, false),
+		mk("disagreed", Stable, true, false),
+	}
+	flaky := map[string]bool{}
+	for _, v := range Flaky(vs) {
+		flaky[v.RuleID] = true
+	}
+	if flaky["clean_pass"] || flaky["clean_fail"] {
+		t.Error("clean stable rules must not be flaky")
+	}
+	for _, id := range []string{"flipped", "newpass", "disagreed"} {
+		if !flaky[id] {
+			t.Errorf("%s should be flaky", id)
+		}
+	}
+	if len(flaky) != 3 {
+		t.Errorf("expected 3 flaky rules, got %d", len(flaky))
+	}
+}
+
 func TestHasCriticalRegression(t *testing.T) {
 	if HasCriticalRegression([]Verdict{
 		{Severity: dsl.High, Status: Regression},
