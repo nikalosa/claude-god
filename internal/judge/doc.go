@@ -1,7 +1,13 @@
-// Package judge wraps Anthropic API calls used as the grading escape hatch:
-// L2 rubric scoring of open-ended architectural answers and L3 plan-vs-plan
-// diffs. Isolated from the deterministic path so the rest of the system stays
-// free of judge-LLM run-to-run noise.
+// Package judge is the LLM-based grader, isolated from the deterministic
+// pattern path so its run-to-run noise never touches regex grading.
 //
-// Out of the v1 first slice (L1 is regex-only); lands when L2 begins.
+// It runs in two modes: Score (absolute rubric scoring for rule-based probes a
+// regex cannot express) and Prefer (comparative preference for open-ended
+// probes — report-only). The backend invokes `claude -p` in a throwaway empty
+// working directory so no target Environment can sway it, reusing the
+// developer's OAuth login with no API key (ADR-0003). The Backend interface
+// hides the backend so a later swap to the Anthropic API is a localized change.
+//
+// Judge methods take and return only plain strings/values — never dsl or parser
+// types — so judge stays an import leaf and dsl->judge cannot cycle.
 package judge
