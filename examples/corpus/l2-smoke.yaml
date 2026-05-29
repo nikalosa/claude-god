@@ -17,3 +17,9 @@ probes:
                 - "samples each probe multiple times per environment (N=3)"
                 - "reports what regressed, what improved, and cost/token/time deltas"
               pass_score: 60
+
+  # An open-ended probe: no rules, graded comparatively by the judge
+  # (preference, both orderings). Report-only — never a pass/fail or a gate.
+  - id: design_tradeoffs
+    kind: open_ended
+    prompt: "What are the main design tradeoffs in how claude-validator grades probes?"

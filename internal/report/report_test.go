@@ -6,6 +6,8 @@ import (
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/dsl"
+	"github.com/nikalosa/claude-god/internal/judge"
+	"github.com/nikalosa/claude-god/internal/runner"
 )
 
 func side(pass bool, p, n int) aggregator.VerdictSide {
@@ -25,7 +27,7 @@ func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
 		OutputTokBefore: 100, OutputTokAfter: 80,
 		DurationMsBefore: 4000, DurationMsAfter: 3000,
 	}
-	md := RenderMarkdown(verdicts, d)
+	md := RenderMarkdown(verdicts, nil, d)
 
 	idxCrit := strings.Index(md, "## Critical regressions")
 	idxNew := strings.Index(md, "## New passes")
@@ -55,15 +57,54 @@ func TestRenderMarkdown_Disagreement(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "flaky", Severity: dsl.Medium, Before: side(true, 2, 3), After: side(true, 2, 3), Status: aggregator.Stable},
 	}
-	md := RenderMarkdown(verdicts, aggregator.Deltas{})
+	md := RenderMarkdown(verdicts, nil, aggregator.Deltas{})
 	if !strings.Contains(md, "disagreement") {
 		t.Errorf("disagreement marker missing: %s", md)
 	}
 }
 
 func TestRenderMarkdown_EmptyBuckets(t *testing.T) {
-	md := RenderMarkdown(nil, aggregator.Deltas{})
+	md := RenderMarkdown(nil, nil, aggregator.Deltas{})
 	if !strings.Contains(md, "_none_") {
 		t.Errorf("expected empty bucket markers\n%s", md)
+	}
+}
+
+func TestRenderMarkdown_PreferenceSection(t *testing.T) {
+	prefs := []runner.PreferenceResult{{
+		ProbeID: "design_tradeoffs", Outcome: judge.AfterBetter,
+		Concise: judge.AfterBetter, Exhaustive: judge.Tie, Direct: judge.AfterBetter,
+		Reasoning: "the after answer is tighter",
+	}}
+	md := RenderMarkdown(nil, prefs, aggregator.Deltas{})
+
+	const heading = "## What reads better (open-ended)"
+	start := strings.Index(md, heading)
+	if start < 0 {
+		t.Fatalf("missing preference section:\n%s", md)
+	}
+	// Isolate the section (until the next "## " heading) and assert it carries
+	// no PASS/FAIL or severity — it is strictly report-only.
+	section := md[start+len(heading):]
+	if end := strings.Index(section, "\n## "); end >= 0 {
+		section = section[:end]
+	}
+	if !strings.Contains(section, "design_tradeoffs") || !strings.Contains(section, "After reads better") {
+		t.Errorf("preference outcome not rendered:\n%s", section)
+	}
+	if !strings.Contains(section, "the after answer is tighter") {
+		t.Errorf("preference reasoning not rendered:\n%s", section)
+	}
+	for _, banned := range []string{"PASS", "FAIL", "critical", "high", "medium"} {
+		if strings.Contains(section, banned) {
+			t.Errorf("preference section must not contain %q (report-only):\n%s", banned, section)
+		}
+	}
+}
+
+func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
+	md := RenderMarkdown(nil, nil, aggregator.Deltas{})
+	if strings.Contains(md, "What reads better") {
+		t.Errorf("preference section should be omitted when there are no open-ended probes:\n%s", md)
 	}
 }

@@ -6,16 +6,18 @@ import (
 	"strings"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
+	"github.com/nikalosa/claude-god/internal/judge"
+	"github.com/nikalosa/claude-god/internal/runner"
 )
 
-func RenderMarkdown(verdicts []aggregator.Verdict, d aggregator.Deltas) string {
+func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, d aggregator.Deltas) string {
 	regressions, newPasses, others := bucket(verdicts)
 
 	var b strings.Builder
 	fmt.Fprintln(&b, "# claude-validator report")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "%d verdicts: %d critical regressions, %d new passes, %d other\n",
-		len(verdicts), countCritical(regressions), len(newPasses), len(others))
+	fmt.Fprintf(&b, "%d verdicts: %d critical regressions, %d new passes, %d other; %d open-ended\n",
+		len(verdicts), countCritical(regressions), len(newPasses), len(others), len(prefs))
 	fmt.Fprintln(&b)
 
 	fmt.Fprintln(&b, "## Critical regressions")
@@ -42,6 +44,8 @@ func RenderMarkdown(verdicts []aggregator.Verdict, d aggregator.Deltas) string {
 	}
 	fmt.Fprintln(&b)
 
+	renderPreferences(&b, prefs)
+
 	fmt.Fprintln(&b, "## Cost / token / time deltas (medians, summed across probes)")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Metric | Before | After | Δ |")
@@ -64,6 +68,41 @@ func RenderMarkdown(verdicts []aggregator.Verdict, d aggregator.Deltas) string {
 	}
 
 	return b.String()
+}
+
+// renderPreferences renders the open-ended "what reads better" section. It is
+// strictly report-only: no PASS/FAIL, no severity, and these results never
+// become Verdicts, so they cannot affect the exit code.
+func renderPreferences(b *strings.Builder, prefs []runner.PreferenceResult) {
+	if len(prefs) == 0 {
+		return
+	}
+	sorted := append([]runner.PreferenceResult(nil), prefs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ProbeID < sorted[j].ProbeID })
+
+	fmt.Fprintln(b, "## What reads better (open-ended)")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "_Report-only preference — no pass/fail, no gate._")
+	fmt.Fprintln(b)
+	for _, p := range sorted {
+		fmt.Fprintf(b, "- **[%s]** %s (concise: %s, exhaustive: %s, direct: %s)\n",
+			p.ProbeID, p.Outcome.Label(), prefShort(p.Concise), prefShort(p.Exhaustive), prefShort(p.Direct))
+		if p.Reasoning != "" {
+			fmt.Fprintf(b, "  - %s\n", p.Reasoning)
+		}
+	}
+	fmt.Fprintln(b)
+}
+
+func prefShort(o judge.Outcome) string {
+	switch o {
+	case judge.BeforeBetter:
+		return "before"
+	case judge.AfterBetter:
+		return "after"
+	default:
+		return "tie"
+	}
 }
 
 func fmtSide(s aggregator.VerdictSide) string {

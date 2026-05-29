@@ -20,11 +20,27 @@ const (
 	Medium   Severity = "medium"
 )
 
+// ProbeKind distinguishes a rule-based probe (graded absolutely against Rules)
+// from an open-ended probe (graded comparatively by the Judge). The kind is
+// explicit, never inferred from an empty rule list: an accidentally-emptied
+// rules block must be a load error, not a silently report-only probe — this is
+// the one tool whose job is catching silently-dropped rules.
+type ProbeKind string
+
+const (
+	RuleBased ProbeKind = "rule_based"
+	OpenEnded ProbeKind = "open_ended"
+)
+
 type Probe struct {
 	ID     string
 	Prompt string
+	Kind   ProbeKind
 	Rules  []Rule
 }
+
+// OpenEnded reports whether the probe is graded by comparative preference.
+func (p Probe) OpenEnded() bool { return p.Kind == OpenEnded }
 
 type Rule struct {
 	ID       string
@@ -118,6 +134,9 @@ func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Ru
 // caller builds a Judge (and requires --level l2) exactly when needed.
 func NeedsJudge(probes []Probe) bool {
 	for _, p := range probes {
+		if p.OpenEnded() {
+			return true
+		}
 		for _, r := range p.Rules {
 			for _, c := range r.Checks {
 				if _, ok := c.(*JudgeRubric); ok {
@@ -136,6 +155,7 @@ type rawCorpus struct {
 type rawProbe struct {
 	ID     string    `yaml:"id"`
 	Prompt string    `yaml:"prompt"`
+	Kind   string    `yaml:"kind"`
 	Rules  []rawRule `yaml:"rules"`
 }
 
@@ -164,7 +184,14 @@ func LoadCorpus(path string) ([]Probe, error) {
 		if rp.ID == "" {
 			return nil, fmt.Errorf("probe missing id")
 		}
-		p := Probe{ID: rp.ID, Prompt: rp.Prompt}
+		if rp.Prompt == "" {
+			return nil, fmt.Errorf("probe %s: prompt is required", rp.ID)
+		}
+		kind, err := parseKind(rp.Kind)
+		if err != nil {
+			return nil, fmt.Errorf("probe %s: %w", rp.ID, err)
+		}
+		p := Probe{ID: rp.ID, Prompt: rp.Prompt, Kind: kind}
 		for _, rr := range rp.Rules {
 			if rr.ID == "" {
 				return nil, fmt.Errorf("probe %s: rule missing id", rp.ID)
@@ -183,9 +210,30 @@ func LoadCorpus(path string) ([]Probe, error) {
 			}
 			p.Rules = append(p.Rules, rule)
 		}
+		switch kind {
+		case OpenEnded:
+			if len(p.Rules) > 0 {
+				return nil, fmt.Errorf("probe %s: open_ended probe must have no rules", rp.ID)
+			}
+		case RuleBased:
+			if len(p.Rules) == 0 {
+				return nil, fmt.Errorf("probe %s: rule_based probe needs >=1 rule (use kind: open_ended for a preference probe)", rp.ID)
+			}
+		}
 		probes = append(probes, p)
 	}
 	return probes, nil
+}
+
+func parseKind(s string) (ProbeKind, error) {
+	switch s {
+	case "", string(RuleBased):
+		return RuleBased, nil
+	case string(OpenEnded):
+		return OpenEnded, nil
+	default:
+		return "", fmt.Errorf("invalid kind %q (want rule_based|open_ended)", s)
+	}
 }
 
 func parseSeverity(s string) (Severity, error) {

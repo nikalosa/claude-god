@@ -13,7 +13,9 @@ import (
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/harness"
 	"github.com/nikalosa/claude-god/internal/judge"
+	"github.com/nikalosa/claude-god/internal/parser"
 	"github.com/nikalosa/claude-god/internal/report"
+	"github.com/nikalosa/claude-god/internal/runner"
 )
 
 var (
@@ -60,25 +62,29 @@ var runCmd = &cobra.Command{
 
 		ctx := context.Background()
 		aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
+		var prefs []runner.PreferenceResult
 		for _, probe := range probes {
-			beforeRuns, err := runN(ctx, target, flagBefore, probe, flagSamples, j)
+			beforeRecs, err := sampleN(ctx, target, flagBefore, probe, flagSamples)
 			if err != nil {
 				return fmt.Errorf("probe %s before: %w", probe.ID, err)
 			}
-			afterRuns, err := runN(ctx, target, flagAfter, probe, flagSamples, j)
+			afterRecs, err := sampleN(ctx, target, flagAfter, probe, flagSamples)
 			if err != nil {
 				return fmt.Errorf("probe %s after: %w", probe.ID, err)
 			}
-			aggs = append(aggs, aggregator.Aggregate(aggregator.ProbeOutcome{
-				ProbeID: probe.ID,
-				Before:  aggregator.EnvOutcome{Runs: beforeRuns},
-				After:   aggregator.EnvOutcome{Runs: afterRuns},
-			}))
+			agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs, afterRecs, j)
+			if err != nil {
+				return fmt.Errorf("probe %s: %w", probe.ID, err)
+			}
+			aggs = append(aggs, agg)
+			if pref != nil {
+				prefs = append(prefs, *pref)
+			}
 		}
 
 		verdicts := aggregator.Compare(aggs)
 		deltas := aggregator.ComputeDeltas(aggs)
-		fmt.Println(report.RenderMarkdown(verdicts, deltas))
+		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas))
 
 		if aggregator.HasCriticalRegression(verdicts) {
 			fmt.Fprintln(os.Stderr, "FAIL: critical regression detected")
@@ -136,8 +142,10 @@ func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
-func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int, j judge.Judge) ([]aggregator.Run, error) {
-	runs := make([]aggregator.Run, 0, n)
+// sampleN runs one probe n times on a branch and collects the run records;
+// grading is the runner's job, so the live harness loop stays free of it.
+func sampleN(ctx context.Context, target, branch string, probe dsl.Probe, n int) ([]*parser.RunRecord, error) {
+	records := make([]*parser.RunRecord, 0, n)
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(os.Stderr, "probe %s: sample %d/%d on %s\n", probe.ID, i+1, n, branch)
 		res, err := harness.Run(ctx, harness.Opts{
@@ -149,16 +157,9 @@ func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int, j 
 		if err != nil {
 			return nil, err
 		}
-		results, err := dsl.Grade(ctx, probe.Prompt, res.Record, probe.Rules, j)
-		if err != nil {
-			return nil, err
-		}
-		runs = append(runs, aggregator.Run{
-			Record:  res.Record,
-			Results: results,
-		})
+		records = append(records, res.Record)
 	}
-	return runs, nil
+	return records, nil
 }
 
 func init() {

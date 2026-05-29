@@ -384,6 +384,71 @@ func TestLoadCorpus_L2Example(t *testing.T) {
 	if _, ok := probes[0].Rules[0].Checks[0].(*JudgeRubric); !ok {
 		t.Errorf("expected a *JudgeRubric check, got %T", probes[0].Rules[0].Checks[0])
 	}
+	var openEnded int
+	for _, p := range probes {
+		if p.OpenEnded() {
+			openEnded++
+		}
+	}
+	if openEnded != 1 {
+		t.Errorf("expected exactly 1 open-ended probe in the L2 example, got %d", openEnded)
+	}
+}
+
+func TestLoadCorpus_KindValidation(t *testing.T) {
+	cases := map[string]string{
+		"open_ended with rules": `probes:
+  - id: p
+    kind: open_ended
+    prompt: "x"
+    rules:
+      - id: r
+        severity: high
+        checks:
+          - text_matches: "x"`,
+		"rule_based with no rules": `probes:
+  - id: p
+    prompt: "x"`,
+		"bad kind": `probes:
+  - id: p
+    kind: bogus
+    prompt: "x"`,
+		"missing prompt": `probes:
+  - id: p
+    kind: open_ended`,
+	}
+	for name, yaml := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "c.yaml")
+			if err := os.WriteFile(path, []byte(yaml+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadCorpus(path); err == nil {
+				t.Errorf("expected load error for %q", name)
+			}
+		})
+	}
+}
+
+func TestLoadCorpus_OpenEnded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	yaml := `probes:
+  - id: design
+    kind: open_ended
+    prompt: "What are the tradeoffs?"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	probes, err := LoadCorpus(path)
+	if err != nil {
+		t.Fatalf("LoadCorpus: %v", err)
+	}
+	if !probes[0].OpenEnded() || len(probes[0].Rules) != 0 {
+		t.Errorf("expected an open-ended, rule-less probe: %+v", probes[0])
+	}
 }
 
 func TestNeedsJudge(t *testing.T) {

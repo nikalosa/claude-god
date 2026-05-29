@@ -18,6 +18,18 @@ const (
 	AfterBetter  Outcome = "after_better"
 )
 
+// Label renders the outcome for a human-read report.
+func (o Outcome) Label() string {
+	switch o {
+	case BeforeBetter:
+		return "Before reads better"
+	case AfterBetter:
+		return "After reads better"
+	default:
+		return "Tie"
+	}
+}
+
 // Preference is the result of comparing two answers head-to-head across three
 // dimensions. Report-only: it never carries a PASS/FAIL or severity.
 type Preference struct {
