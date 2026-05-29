@@ -1,8 +1,21 @@
 # claude-validator — PRD
 
-**Status:** Design locked, pre-implementation.
+**Status:** Design locked, pre-implementation. **Amended 2026-05-29 — see below.**
 **Target home:** Sibling OSS repo (`~/Desktop/claude-god/`). This document is drafted in PAM (`~/Desktop/Velitech/pam/`) only as a temporary holding location; the actual codebase will live outside PAM.
 **Target consumer (v1):** the PAM repo's CLAUDE.md + `.claude/rules/*` + project memory restructure effort.
+
+---
+
+## v1 Amendments (2026-05-29)
+
+Resolved in a grilling session; supersede the conflicting parts of the body below. Decision record: [ADR-0002](adr/0002-report-not-gate-and-preference-judging.md). Glossary: [CONTEXT.md](../CONTEXT.md).
+
+1. **Report, not gate.** v1's product is a decision-support report a human reads (what improved / what compromised / cost). The "tiered gate" and non-zero-exit framing are demoted to a harmless optional bit for future CI — not the point. Wherever the body says the validator "gates" or "blocks," read "reports."
+2. **Open-ended probes use comparative preference.** Architectural Q&A is graded head-to-head (which answer reads better: concise / exhaustive / direct, both orderings). This pulls "qualitative shape" — deferred to v2 in *Out of Scope* — **into v1**, safe because it only informs the report.
+3. **Two probe kinds.** *Rule-based* (absolute per-environment grading → Regression = "what compromised") and *open-ended* (comparative preference). Cost/token/time **Numbers** always compared.
+4. **Judge stability.** Judge-scored rules: each of the N=3 answers judged once, **median** score thresholded.
+5. **Terminology.** *Rule* = the graded behavior. *Claude rules* = only `.claude/rules/*` (not CLAUDE.md or docs). *Environment* = the whole config (CLAUDE.md + Claude rules + docs + memory). *Dataset* = corpus.
+6. **Pipeline + dataset authorship.** The end-to-end flow (author dataset → run *before* → dev restructures → run *after* → compare) is built now. Dataset is dev-authored (tool-assisted); auto-generation is the *next* step. Restructure automation via skills stays future.
 
 ---
 
