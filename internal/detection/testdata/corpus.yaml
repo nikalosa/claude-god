@@ -1,0 +1,19 @@
+# Planted-regression corpus. The "mascot" rule's backing line exists ONLY in
+# the good CLAUDE.md (a fact the model cannot otherwise know), so dropping it
+# from the degraded branch must flip the rule PASS -> FAIL (a Regression). The
+# "money" rule's backing line is retained on both branches and must stay stable.
+probes:
+  - id: mascot
+    prompt: "What is the name of this project's official mascot? Answer in one short sentence."
+    rules:
+      - id: names_mascot
+        severity: critical
+        checks:
+          - text_matches: "(?i)zilworld"
+  - id: money
+    prompt: "How must monetary amounts be stored in this project? Answer in one short sentence."
+    rules:
+      - id: money_string
+        severity: high
+        checks:
+          - text_matches: "(?i)string"
