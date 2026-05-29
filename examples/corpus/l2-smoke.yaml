@@ -1,0 +1,19 @@
+# Example L2 corpus: a judge-graded (rubric) design probe. The rubric turns an
+# open-ended architectural answer into per-fact present/absent, scored 0-100 and
+# thresholded by pass_score. Requires --level l2 (a Judge is built):
+#
+#   claude-validator run --level l2 --corpus examples/corpus/l2-smoke.yaml \
+#     --target <repo> --before <branch> --after <branch>
+probes:
+  - id: architecture_design
+    prompt: "Describe how claude-validator compares two Claude environments, end to end."
+    rules:
+      - id: explains_ab_pipeline
+        severity: high
+        checks:
+          - judge_rubric:
+              facts:
+                - "runs a corpus of probes against a before environment and an after environment"
+                - "samples each probe multiple times per environment (N=3)"
+                - "reports what regressed, what improved, and cost/token/time deltas"
+              pass_score: 60

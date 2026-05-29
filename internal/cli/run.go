@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/harness"
+	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/report"
 )
 
@@ -28,14 +30,15 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the A/B benchmark for the given tiers",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if flagLevel != "l1" {
-			return fmt.Errorf("only --level l1 is supported in this slice (got %q)", flagLevel)
+		levels, err := parseLevels(flagLevel)
+		if err != nil {
+			return err
 		}
 		if flagCorpus == "" {
 			return fmt.Errorf("--corpus is required")
 		}
-		if flagSamples < 1 {
-			return fmt.Errorf("--samples must be >= 1")
+		if err := validateSamples(flagSamples); err != nil {
+			return err
 		}
 		target, err := filepath.Abs(flagTarget)
 		if err != nil {
@@ -50,14 +53,19 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("corpus has no probes")
 		}
 
+		j, err := judgeFor(probes, levels)
+		if err != nil {
+			return err
+		}
+
 		ctx := context.Background()
 		aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
 		for _, probe := range probes {
-			beforeRuns, err := runN(ctx, target, flagBefore, probe, flagSamples)
+			beforeRuns, err := runN(ctx, target, flagBefore, probe, flagSamples, j)
 			if err != nil {
 				return fmt.Errorf("probe %s before: %w", probe.ID, err)
 			}
-			afterRuns, err := runN(ctx, target, flagAfter, probe, flagSamples)
+			afterRuns, err := runN(ctx, target, flagAfter, probe, flagSamples, j)
 			if err != nil {
 				return fmt.Errorf("probe %s after: %w", probe.ID, err)
 			}
@@ -80,7 +88,55 @@ var runCmd = &cobra.Command{
 	},
 }
 
-func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int) ([]aggregator.Run, error) {
+// parseLevels splits the --level CSV into a tier set, accepting l1/l2 and
+// rejecting the not-yet-supported l3/l4 and unknown tokens.
+func parseLevels(s string) (map[string]bool, error) {
+	set := map[string]bool{}
+	for _, tok := range strings.Split(s, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		switch tok {
+		case "l1", "l2":
+			set[tok] = true
+		case "l3", "l4":
+			return nil, fmt.Errorf("tier %q is not supported in v1 (only l1, l2)", tok)
+		default:
+			return nil, fmt.Errorf("unknown tier %q (want l1 or l2)", tok)
+		}
+	}
+	if len(set) == 0 {
+		return nil, fmt.Errorf("--level is empty")
+	}
+	return set, nil
+}
+
+// validateSamples requires an odd N: the aggregator's majority vote equals
+// median-of-scores thresholding (the judge-rubric contract) only for odd N.
+func validateSamples(n int) error {
+	if n < 1 {
+		return fmt.Errorf("--samples must be >= 1")
+	}
+	if n%2 == 0 {
+		return fmt.Errorf("--samples must be odd (got %d) so median == majority vote", n)
+	}
+	return nil
+}
+
+// judgeFor builds a Judge iff the corpus has judge-backed rules, requiring l2 to
+// be enabled in that case so a judge check never runs without a judge.
+func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
+	if !dsl.NeedsJudge(probes) {
+		return nil, nil
+	}
+	if !levels["l2"] {
+		return nil, fmt.Errorf("corpus has judge_rubric rules (L2); add l2 to --level (got %q)", flagLevel)
+	}
+	return judge.New(judge.NewClaudeBackend()), nil
+}
+
+func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int, j judge.Judge) ([]aggregator.Run, error) {
 	runs := make([]aggregator.Run, 0, n)
 	for i := 0; i < n; i++ {
 		fmt.Fprintf(os.Stderr, "probe %s: sample %d/%d on %s\n", probe.ID, i+1, n, branch)
@@ -93,9 +149,13 @@ func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int) ([
 		if err != nil {
 			return nil, err
 		}
+		results, err := dsl.Grade(ctx, probe.Prompt, res.Record, probe.Rules, j)
+		if err != nil {
+			return nil, err
+		}
 		runs = append(runs, aggregator.Run{
 			Record:  res.Record,
-			Results: dsl.Grade(res.Record, probe.Rules),
+			Results: results,
 		})
 	}
 	return runs, nil
@@ -103,11 +163,11 @@ func runN(ctx context.Context, target, branch string, probe dsl.Probe, n int) ([
 
 func init() {
 	f := runCmd.Flags()
-	f.StringVar(&flagLevel, "level", "l1", "comma-separated tiers to run (l1,l2,l3,l4)")
+	f.StringVar(&flagLevel, "level", "l1", "comma-separated tiers to run (l1, l2)")
 	f.StringVar(&flagTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagBefore, "before", "validator/before", "branch holding the pre-restructure baseline")
 	f.StringVar(&flagAfter, "after", "validator/after", "branch holding the post-restructure config under test")
-	f.IntVar(&flagSamples, "samples", 3, "samples per environment (N=3 by default; adaptive N=5 deferred)")
+	f.IntVar(&flagSamples, "samples", 3, "samples per environment (odd N; N=3 by default, adaptive N=5 deferred)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")
 }

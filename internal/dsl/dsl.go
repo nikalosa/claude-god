@@ -1,12 +1,14 @@
 package dsl
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
@@ -30,20 +32,56 @@ type Rule struct {
 	Checks   []Check
 }
 
+// EvalInput is everything a Check grades against: the probe prompt (the
+// question the run answered), the run's record, and the Judge (nil unless the
+// corpus needs one). A regex check reads only Record; a judge check also needs
+// Prompt and Judge.
+type EvalInput struct {
+	Prompt string
+	Record *parser.RunRecord
+	Judge  judge.Judge
+}
+
 type Check interface {
-	Eval(rec *parser.RunRecord) bool
+	Eval(ctx context.Context, in EvalInput) (bool, error)
 	String() string
 }
 
+// TextMatches is a deterministic regex check over the final assistant text. It
+// never touches the Judge, so judge noise cannot reach this path.
 type TextMatches struct {
 	Pattern *regexp.Regexp
 }
 
-func (c *TextMatches) Eval(rec *parser.RunRecord) bool {
-	return c.Pattern.MatchString(rec.FinalText)
+func (c *TextMatches) Eval(_ context.Context, in EvalInput) (bool, error) {
+	return c.Pattern.MatchString(in.Record.FinalText), nil
 }
 
 func (c *TextMatches) String() string { return "text_matches:" + c.Pattern.String() }
+
+// JudgeRubric grades the run's answer against a list of facts via the Judge,
+// passing when the score meets PassScore. It grades ONE run; the aggregator's
+// majority vote across the N (odd) samples collapses to the rule outcome, which
+// for odd N equals taking the median score and thresholding it (ADR-0002).
+type JudgeRubric struct {
+	Facts     []string
+	PassScore int
+}
+
+func (c *JudgeRubric) Eval(ctx context.Context, in EvalInput) (bool, error) {
+	if in.Judge == nil {
+		return false, fmt.Errorf("judge_rubric check requires a judge (run with --level l2)")
+	}
+	score, err := in.Judge.Score(ctx, in.Prompt, in.Record.FinalText, c.Facts)
+	if err != nil {
+		return false, err
+	}
+	return score >= c.PassScore, nil
+}
+
+func (c *JudgeRubric) String() string {
+	return fmt.Sprintf("judge_rubric(facts=%d,pass=%d)", len(c.Facts), c.PassScore)
+}
 
 type RuleResult struct {
 	RuleID   string
@@ -51,19 +89,44 @@ type RuleResult struct {
 	Pass     bool
 }
 
-func Grade(rec *parser.RunRecord, rules []Rule) []RuleResult {
+// Grade evaluates each rule's checks against one run. A rule passes only if all
+// its checks pass; checks short-circuit on the first failure (so a regex FAIL
+// ordered before a judge check skips the judge call). A check error aborts and
+// is returned — a judge hiccup fails the run loudly rather than silently
+// flipping a deterministic outcome.
+func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Rule, j judge.Judge) ([]RuleResult, error) {
 	out := make([]RuleResult, 0, len(rules))
+	in := EvalInput{Prompt: prompt, Record: rec, Judge: j}
 	for _, r := range rules {
 		pass := true
 		for _, c := range r.Checks {
-			if !c.Eval(rec) {
+			ok, err := c.Eval(ctx, in)
+			if err != nil {
+				return nil, fmt.Errorf("rule %s check %s: %w", r.ID, c.String(), err)
+			}
+			if !ok {
 				pass = false
 				break
 			}
 		}
 		out = append(out, RuleResult{RuleID: r.ID, Severity: r.Severity, Pass: pass})
 	}
-	return out
+	return out, nil
+}
+
+// NeedsJudge reports whether any check in the corpus is judge-backed, so the
+// caller builds a Judge (and requires --level l2) exactly when needed.
+func NeedsJudge(probes []Probe) bool {
+	for _, p := range probes {
+		for _, r := range p.Rules {
+			for _, c := range r.Checks {
+				if _, ok := c.(*JudgeRubric); ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 type rawCorpus struct {
@@ -77,9 +140,14 @@ type rawProbe struct {
 }
 
 type rawRule struct {
-	ID       string              `yaml:"id"`
-	Severity string              `yaml:"severity"`
-	Checks   []map[string]string `yaml:"checks"`
+	ID       string                 `yaml:"id"`
+	Severity string                 `yaml:"severity"`
+	Checks   []map[string]yaml.Node `yaml:"checks"`
+}
+
+type rawJudgeRubric struct {
+	Facts     []string `yaml:"facts"`
+	PassScore *int     `yaml:"pass_score"`
 }
 
 func LoadCorpus(path string) ([]Probe, error) {
@@ -129,18 +197,44 @@ func parseSeverity(s string) (Severity, error) {
 	}
 }
 
-func buildCheck(raw map[string]string) (Check, error) {
+// buildCheck decodes one check entry. Each entry must carry exactly one kind;
+// the single-key map preserves that invariant and rejects unknown kinds for
+// free, while yaml.Node defers value decoding so richer kinds (judge_rubric)
+// can carry structured data.
+func buildCheck(raw map[string]yaml.Node) (Check, error) {
 	if len(raw) != 1 {
-		return nil, fmt.Errorf("check must have exactly one key, got %d", len(raw))
+		return nil, fmt.Errorf("check must have exactly one kind, got %d", len(raw))
 	}
-	for k, v := range raw {
+	for k, node := range raw {
 		switch k {
 		case "text_matches":
-			re, err := regexp.Compile(v)
+			var pat string
+			if err := node.Decode(&pat); err != nil {
+				return nil, fmt.Errorf("text_matches: %w", err)
+			}
+			if pat == "" {
+				return nil, fmt.Errorf("text_matches: empty pattern")
+			}
+			re, err := regexp.Compile(pat)
 			if err != nil {
-				return nil, fmt.Errorf("text_matches %q: %w", v, err)
+				return nil, fmt.Errorf("text_matches %q: %w", pat, err)
 			}
 			return &TextMatches{Pattern: re}, nil
+		case "judge_rubric":
+			var jr rawJudgeRubric
+			if err := node.Decode(&jr); err != nil {
+				return nil, fmt.Errorf("judge_rubric: %w", err)
+			}
+			if len(jr.Facts) == 0 {
+				return nil, fmt.Errorf("judge_rubric: needs at least one fact")
+			}
+			if jr.PassScore == nil {
+				return nil, fmt.Errorf("judge_rubric: pass_score is required (1..100)")
+			}
+			if *jr.PassScore < 1 || *jr.PassScore > 100 {
+				return nil, fmt.Errorf("judge_rubric: pass_score %d out of range (1..100)", *jr.PassScore)
+			}
+			return &JudgeRubric{Facts: jr.Facts, PassScore: *jr.PassScore}, nil
 		default:
 			return nil, fmt.Errorf("unknown check kind %q", k)
 		}
