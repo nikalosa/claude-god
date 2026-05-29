@@ -1,0 +1,51 @@
+# Self-test corpus: probes the validator's own CLAUDE.md.
+#
+# Calibrated 2026-05-29 — before-vs-before main↔main, N=3, 30 runs, 0 regressions,
+# all 6 rules stable PASS (3/3) on both envs. Noise floor: 0.
+# (Issue #7. Re-run with: claude-validator run --target . --corpus .validator/corpus/self.yaml
+#  --before main --after main --no-memory-snapshot --samples 3.)
+
+probes:
+  - id: style_concise
+    prompt: "What is the main style or tone rule for this project?"
+    rules:
+      - id: mentions_concise
+        severity: critical
+        checks:
+          - text_matches: "(?i)concise|terse|concision|brief"
+
+  - id: project_identity
+    prompt: "In one sentence, what is claude-validator?"
+    rules:
+      - id: mentions_ab_benchmark
+        severity: critical
+        checks:
+          - text_matches: "(?i)A/B|benchmark|compare|before.*after"
+      - id: mentions_claude_md_or_context
+        severity: high
+        checks:
+          - text_matches: "(?i)CLAUDE\\.md|context"
+
+  - id: prd_pointer
+    prompt: "Where do the full design decisions and locked architectural choices live in this repo?"
+    rules:
+      - id: mentions_prd
+        severity: high
+        checks:
+          - text_matches: "(?i)PRD|docs/PRD"
+
+  - id: code_minimalism
+    prompt: "What does this project say about adding code beyond what the task strictly requires?"
+    rules:
+      - id: mentions_kiss_or_yagni
+        severity: high
+        checks:
+          - text_matches: "(?i)KISS|YAGNI|minimum|speculative|nothing.*extra"
+
+  - id: surgical_edits
+    prompt: "What is the rule about scope when making code changes?"
+    rules:
+      - id: mentions_surgical
+        severity: high
+        checks:
+          - text_matches: "(?i)surgical|every.*line.*traces|every changed line"
