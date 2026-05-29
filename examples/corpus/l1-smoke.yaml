@@ -1,0 +1,16 @@
+probes:
+  - id: purpose_recall
+    prompt: "In one sentence, what is the purpose of claude-validator?"
+    rules:
+      - id: mentions_ab_benchmark
+        severity: critical
+        checks:
+          - text_matches: "(?i)benchmark|A/B|before.*after|compare"
+      - id: mentions_context_or_claude_md
+        severity: high
+        checks:
+          - text_matches: "(?i)context|CLAUDE\\.md|configuration"
+      - id: mentions_rule_or_regression
+        severity: medium
+        checks:
+          - text_matches: "(?i)rule|regression|fidelity"
