@@ -50,6 +50,24 @@ _Avoid_: "Rules" (bare — means the graded unit); using "Claude rules" for CLAU
 One predicate evaluated against a run. Pattern-first (e.g. `text_matches`); the **Judge** is the escape hatch for open-ended rules. A rule passes only if all its checks pass.
 _Avoid_: Predicate (reserve for the DSL family), matcher, validator (overloaded with the tool name).
 
+### Corpus generation
+
+**Generator**:
+The drafting step that turns hand-selected source text — **CLAUDE.md**, **Claude rules**, **docs**, and any pasted-in text — into a draft **Corpus**, run once against the **Before** environment and then frozen. Access tracks **probe kind, not tier**: **rule-based probes** must be doc-borne, proven by the **Closed-book check** (the generator may still read code for schema-grounded rubric facts); **open-ended probes** (incl. architectural L2) may read the codebase, being report-only and unable to false-pass. The empty-dir isolation it leans on is the Judge's ([ADR-0003](docs/adr/0003-judge-backend-claude-p.md)). A **drafting** aid, never an unreviewed author — the dev reviews and edits conversationally before freezing.
+_Avoid_: Corpus builder, scraper, auto-author.
+
+**Closed-book check**:
+The **Generator**'s router and quality gate, run with the codebase present but the **docs stripped**. Three outcomes: answer **breaks** without docs → doc-borne → admit as **rule-based probe** (a regression is detectable); answer **survives** on the code → not doc-borne → demote to **open-ended probe** (preference, report-only); answer survives even with no code → prior-borne → **Weak probe**. For doc-only convention rules the codebase is irrelevant, so the check reduces to full isolation — the cheap form of the planted-fact (`zilworld`) trick the detection harness uses.
+_Avoid_: Open-book test, ablation (reserve for the detection harness).
+
+**Weak probe**:
+A candidate whose answer **survives** its **Closed-book check** with neither docs nor code carrying it — answerable from training priors, so a dropped **Rule** would never flip it. Flagged for the dev's review, never frozen silently.
+_Avoid_: Trivial probe, redundant probe.
+
+**Steering config**:
+The checked-in artifact (selected-doc globs + emphasis/skip notes + proposed **Severities**) that drives the **Generator**, committed to the **Before** branch beside the frozen **Corpus** so generation stays reproducible and auditable.
+_Avoid_: Prompt (bare), generation prompt.
+
 ### Grading & outcome
 
 **Run**:
