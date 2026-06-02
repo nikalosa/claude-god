@@ -11,11 +11,17 @@ import (
 func nearly(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func mkRun(cost float64, in, out, dur int, results ...dsl.RuleResult) Run {
+	return mkRunTools(cost, in, out, dur, 0, results...)
+}
+
+func mkRunTools(cost float64, in, out, dur, tools int, results ...dsl.RuleResult) Run {
+	calls := make([]parser.ToolCall, tools)
 	return Run{
 		Record: &parser.RunRecord{
 			TotalCost: cost,
 			Usage:     parser.Usage{InputTokens: in, OutputTokens: out},
 			Timing:    parser.Timing{DurationMs: dur},
+			ToolCalls: calls,
 		},
 		Results: results,
 	}
@@ -87,6 +93,30 @@ func TestAggregate_MajorityVoteAndDisagreement(t *testing.T) {
 	}
 }
 
+func TestAggregate_MedianToolCalls(t *testing.T) {
+	// Before thrashes (many tool calls), after answers directly (few). The
+	// CodeGraph-style efficiency signal: the leaner env makes fewer tool calls.
+	po := ProbeOutcome{
+		Before: EnvOutcome{Runs: []Run{
+			mkRunTools(0.1, 100, 10, 1000, 10),
+			mkRunTools(0.1, 100, 10, 1000, 12),
+			mkRunTools(0.1, 100, 10, 1000, 14),
+		}},
+		After: EnvOutcome{Runs: []Run{
+			mkRunTools(0.1, 100, 10, 1000, 1),
+			mkRunTools(0.1, 100, 10, 1000, 2),
+			mkRunTools(0.1, 100, 10, 1000, 3),
+		}},
+	}
+	agg := Aggregate(po)
+	if agg.Before.MedianToolCalls != 12 {
+		t.Errorf("before median tool calls = %d, want 12", agg.Before.MedianToolCalls)
+	}
+	if agg.After.MedianToolCalls != 2 {
+		t.Errorf("after median tool calls = %d, want 2", agg.After.MedianToolCalls)
+	}
+}
+
 func TestAggregate_Unanimous(t *testing.T) {
 	res := dsl.RuleResult{RuleID: "r1", Severity: dsl.Critical, Pass: true}
 	po := ProbeOutcome{
@@ -136,12 +166,12 @@ func TestCompare_FromAggregated(t *testing.T) {
 func TestComputeDeltas_Medians(t *testing.T) {
 	aggs := []AggregatedOutcome{
 		{
-			Before: AggregatedEnv{MedianCost: 0.10, MedianInputTok: 1000, MedianOutputTok: 50, MedianDurationMs: 2000},
-			After:  AggregatedEnv{MedianCost: 0.07, MedianInputTok: 700, MedianOutputTok: 40, MedianDurationMs: 1500},
+			Before: AggregatedEnv{MedianCost: 0.10, MedianInputTok: 1000, MedianOutputTok: 50, MedianDurationMs: 2000, MedianToolCalls: 12},
+			After:  AggregatedEnv{MedianCost: 0.07, MedianInputTok: 700, MedianOutputTok: 40, MedianDurationMs: 1500, MedianToolCalls: 2},
 		},
 		{
-			Before: AggregatedEnv{MedianCost: 0.05, MedianInputTok: 500, MedianOutputTok: 20, MedianDurationMs: 1000},
-			After:  AggregatedEnv{MedianCost: 0.04, MedianInputTok: 400, MedianOutputTok: 15, MedianDurationMs: 800},
+			Before: AggregatedEnv{MedianCost: 0.05, MedianInputTok: 500, MedianOutputTok: 20, MedianDurationMs: 1000, MedianToolCalls: 5},
+			After:  AggregatedEnv{MedianCost: 0.04, MedianInputTok: 400, MedianOutputTok: 15, MedianDurationMs: 800, MedianToolCalls: 1},
 		},
 	}
 	d := ComputeDeltas(aggs)
@@ -150,6 +180,9 @@ func TestComputeDeltas_Medians(t *testing.T) {
 	}
 	if d.InputTokBefore != 1500 || d.InputTokAfter != 1100 {
 		t.Errorf("input tokens: %+v", d)
+	}
+	if d.ToolCallsBefore != 17 || d.ToolCallsAfter != 3 {
+		t.Errorf("tool calls: before=%d after=%d, want 17/3", d.ToolCallsBefore, d.ToolCallsAfter)
 	}
 }
 

@@ -112,6 +112,7 @@ func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas) {
 	fmt.Fprintf(b, "| Input tokens | %d | %d | %s |\n", d.InputTokBefore, d.InputTokAfter, deltaIntPct(d.InputTokBefore, d.InputTokAfter))
 	fmt.Fprintf(b, "| Output tokens | %d | %d | %s |\n", d.OutputTokBefore, d.OutputTokAfter, deltaIntPct(d.OutputTokBefore, d.OutputTokAfter))
 	fmt.Fprintf(b, "| Duration (ms) | %d | %d | %s |\n", d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
+	fmt.Fprintf(b, "| Tool calls | %d | %d | %s |\n", d.ToolCallsBefore, d.ToolCallsAfter, deltaIntPct(d.ToolCallsBefore, d.ToolCallsAfter))
 	fmt.Fprintln(b)
 }
 

@@ -26,6 +26,7 @@ func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
 		InputTokBefore: 2000, InputTokAfter: 1400,
 		OutputTokBefore: 100, OutputTokAfter: 80,
 		DurationMsBefore: 4000, DurationMsAfter: 3000,
+		ToolCallsBefore: 24, ToolCallsAfter: 6,
 	}
 	md := RenderMarkdown(verdicts, nil, d)
 
@@ -50,6 +51,9 @@ func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
 	}
 	if !strings.Contains(md, "0.140000") {
 		t.Error("after cost not rendered")
+	}
+	if !strings.Contains(md, "| Tool calls | 24 | 6 |") {
+		t.Errorf("tool-calls delta row not rendered:\n%s", md)
 	}
 }
 

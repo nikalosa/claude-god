@@ -36,6 +36,7 @@ type AggregatedEnv struct {
 	MedianInputTok   int
 	MedianOutputTok  int
 	MedianDurationMs int
+	MedianToolCalls  int
 	Rules            []AggregatedRuleResult
 }
 
@@ -66,6 +67,7 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 	inputs := make([]int, 0, len(e.Runs))
 	outputs := make([]int, 0, len(e.Runs))
 	durations := make([]int, 0, len(e.Runs))
+	toolCalls := make([]int, 0, len(e.Runs))
 	for _, r := range e.Runs {
 		if r.Record == nil {
 			continue
@@ -74,6 +76,7 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 		inputs = append(inputs, r.Record.Usage.InputTokens)
 		outputs = append(outputs, r.Record.Usage.OutputTokens)
 		durations = append(durations, r.Record.Timing.DurationMs)
+		toolCalls = append(toolCalls, len(r.Record.ToolCalls))
 	}
 
 	perRule := map[string][]dsl.RuleResult{}
@@ -115,6 +118,7 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 		MedianInputTok:   medianInt(inputs),
 		MedianOutputTok:  medianInt(outputs),
 		MedianDurationMs: medianInt(durations),
+		MedianToolCalls:  medianInt(toolCalls),
 		Rules:            aggRules,
 	}
 }
@@ -215,6 +219,8 @@ type Deltas struct {
 	OutputTokAfter   int
 	DurationMsBefore int
 	DurationMsAfter  int
+	ToolCallsBefore  int
+	ToolCallsAfter   int
 }
 
 func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
@@ -228,6 +234,8 @@ func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
 		d.OutputTokAfter += a.After.MedianOutputTok
 		d.DurationMsBefore += a.Before.MedianDurationMs
 		d.DurationMsAfter += a.After.MedianDurationMs
+		d.ToolCallsBefore += a.Before.MedianToolCalls
+		d.ToolCallsAfter += a.After.MedianToolCalls
 	}
 	return d
 }
