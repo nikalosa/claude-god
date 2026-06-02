@@ -9,4 +9,4 @@ Principles:
 - Think first: state assumptions, ask when unclear, push back on overcomplication.
 - KISS. YAGNI. Minimum code that solves the task; nothing speculative.
 - Surgical edits — every changed line traces to the request.
-- Define verifiable success before coding.
+- Define verifiable success before coding; loop until it passes.
