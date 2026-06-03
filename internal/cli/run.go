@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/dsl"
@@ -25,8 +28,14 @@ var (
 	flagBefore        string
 	flagAfter         string
 	flagSamples       int
+	flagConcurrency   int
 	flagNoMemSnapshot bool
 )
+
+// runFunc executes one probe sample on a branch and returns its record. The
+// pool depends on this seam, not on harness.Run, so it is unit-testable with a
+// fake and never shells out to claude in tests.
+type runFunc func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error)
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -40,6 +49,9 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("--corpus is required")
 		}
 		if err := validateSamples(flagSamples); err != nil {
+			return err
+		}
+		if err := validateConcurrency(flagConcurrency); err != nil {
 			return err
 		}
 		target, err := filepath.Abs(flagTarget)
@@ -61,11 +73,12 @@ var runCmd = &cobra.Command{
 		}
 
 		ctx := context.Background()
-		verdicts, prefs, deltas, err := runBenchmark(ctx, target, probes, flagBefore, flagAfter, flagSamples, flagNoMemSnapshot, j)
+		run := harnessRun(target, flagNoMemSnapshot)
+		verdicts, prefs, deltas, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j)
 		if err != nil {
 			return err
 		}
-		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas))
+		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas, flagConcurrency))
 
 		if aggregator.HasCriticalRegression(verdicts) {
 			fmt.Fprintln(os.Stderr, "FAIL: critical regression detected")
@@ -123,22 +136,71 @@ func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
-// runBenchmark samples every probe on the before and after branches, grades
-// each, and returns the verdicts, open-ended preferences, and Numbers. Shared
-// by run and calibrate (calibrate passes the same branch on both sides).
-func runBenchmark(ctx context.Context, target string, probes []dsl.Probe, before, after string, samples int, noMem bool, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, aggregator.Deltas, error) {
+// runBenchmark samples every probe on the before and after branches in a
+// bounded parallel pool, then grades each serially, returning the verdicts,
+// open-ended preferences, and Numbers. The runs are independent, so the pool
+// changes nothing about the result; only Duration inflates under concurrency
+// (see ADR-0005). Shared by run and calibrate (calibrate passes the same branch
+// on both sides). run is injected so the pool is testable without claude.
+func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, aggregator.Deltas, error) {
+	beforeRecs := make([][]*parser.RunRecord, len(probes))
+	afterRecs := make([][]*parser.RunRecord, len(probes))
+
+	type task struct {
+		branch, prompt, label, env string
+		dst                        **parser.RunRecord
+	}
+	var tasks []task
+	for pi, probe := range probes {
+		beforeRecs[pi] = make([]*parser.RunRecord, samples)
+		afterRecs[pi] = make([]*parser.RunRecord, samples)
+		for si := 0; si < samples; si++ {
+			tasks = append(tasks,
+				task{before, probe.Prompt, fmt.Sprintf("probe %s before sample %d", probe.ID, si+1), "before", &beforeRecs[pi][si]},
+				task{after, probe.Prompt, fmt.Sprintf("probe %s after sample %d", probe.ID, si+1), "after", &afterRecs[pi][si]},
+			)
+		}
+	}
+
+	perEnv := int64(samples * len(probes))
+	start := time.Now()
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrency)
+	var done, beforeDone, afterDone, inTok, outTok, costMicros int64
+	total := len(tasks)
+	for _, t := range tasks {
+		g.Go(func() error {
+			rec, err := run(gctx, t.branch, t.prompt)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t.label, err)
+			}
+			*t.dst = rec
+			envDone := &afterDone
+			if t.env == "before" {
+				envDone = &beforeDone
+			}
+			atomic.AddInt64(envDone, 1)
+			atomic.AddInt64(&inTok, int64(rec.TotalInputTokens()))
+			atomic.AddInt64(&outTok, int64(rec.TotalOutputTokens()))
+			atomic.AddInt64(&costMicros, int64(rec.TotalCost*1e6))
+			fmt.Fprintf(os.Stderr, "[%d/%d] before %d/%d · after %d/%d · %s in / %s out · $%.2f · %s\n",
+				atomic.AddInt64(&done, 1), total,
+				atomic.LoadInt64(&beforeDone), perEnv,
+				atomic.LoadInt64(&afterDone), perEnv,
+				humanCount(atomic.LoadInt64(&inTok)), humanCount(atomic.LoadInt64(&outTok)),
+				float64(atomic.LoadInt64(&costMicros))/1e6,
+				time.Since(start).Round(time.Second))
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, nil, aggregator.Deltas{}, err
+	}
+
 	aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
 	var prefs []runner.PreferenceResult
-	for _, probe := range probes {
-		beforeRecs, err := sampleN(ctx, target, before, probe, samples, noMem)
-		if err != nil {
-			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s before: %w", probe.ID, err)
-		}
-		afterRecs, err := sampleN(ctx, target, after, probe, samples, noMem)
-		if err != nil {
-			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s after: %w", probe.ID, err)
-		}
-		agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs, afterRecs, j)
+	for pi, probe := range probes {
+		agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs[pi], afterRecs[pi], j)
 		if err != nil {
 			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s: %w", probe.ID, err)
 		}
@@ -150,24 +212,39 @@ func runBenchmark(ctx context.Context, target string, probes []dsl.Probe, before
 	return aggregator.Compare(aggs), prefs, aggregator.ComputeDeltas(aggs), nil
 }
 
-// sampleN runs one probe n times on a branch and collects the run records;
-// grading is the runner's job, so the live harness loop stays free of it.
-func sampleN(ctx context.Context, target, branch string, probe dsl.Probe, n int, noMem bool) ([]*parser.RunRecord, error) {
-	records := make([]*parser.RunRecord, 0, n)
-	for i := 0; i < n; i++ {
-		fmt.Fprintf(os.Stderr, "probe %s: sample %d/%d on %s\n", probe.ID, i+1, n, branch)
+// harnessRun is the production runFunc: it runs one sample through the real
+// harness for a fixed target and memory policy.
+func harnessRun(target string, noMem bool) runFunc {
+	return func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error) {
 		res, err := harness.Run(ctx, harness.Opts{
 			TargetRepo:    target,
 			Branch:        branch,
-			Prompt:        probe.Prompt,
+			Prompt:        prompt,
 			NoMemSnapshot: noMem,
 		})
 		if err != nil {
 			return nil, err
 		}
-		records = append(records, res.Record)
+		return res.Record, nil
 	}
-	return records, nil
+}
+
+func humanCount(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+func validateConcurrency(n int) error {
+	if n < 1 {
+		return fmt.Errorf("--concurrency must be >= 1 (got %d)", n)
+	}
+	return nil
 }
 
 func init() {
@@ -178,5 +255,6 @@ func init() {
 	f.StringVar(&flagBefore, "before", "validator/before", "branch holding the pre-restructure baseline")
 	f.StringVar(&flagAfter, "after", "validator/after", "branch holding the post-restructure config under test")
 	f.IntVar(&flagSamples, "samples", 3, "samples per environment (odd N; N=3 by default, adaptive N=5 deferred)")
+	f.IntVar(&flagConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")
 }

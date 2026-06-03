@@ -101,7 +101,7 @@ The Judge in comparative mode: reads the Before and After responses head-to-head
 _Avoid_: Scoring, rating, A/B preference (reserve A/B for the whole benchmark).
 
 **Numbers**:
-The cost / token / time deltas, captured numerically from every run and always compared Before→After regardless of probe kind. No LLM. Report-only.
+The cost / token / time deltas, captured numerically from every run and always compared Before→After regardless of probe kind. No LLM. Report-only. Within Numbers, **cost and tokens are exact** — the same work bills the same however the runs are executed — while **time (Duration) is advisory**: it inflates when runs share resources, so the report marks it not-comparable unless the runs were unparallelized. The exact Numbers are the resource north-star; Duration is a rough read.
 _Avoid_: Metrics (overloaded), stats.
 
 ## Flagged ambiguities

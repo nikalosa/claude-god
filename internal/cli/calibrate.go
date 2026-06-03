@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	flagCalLevel   string
-	flagCalTarget  string
-	flagCalCorpus  string
-	flagCalBranch  string
-	flagCalSamples int
-	flagCalNoMem   bool
+	flagCalLevel       string
+	flagCalTarget      string
+	flagCalCorpus      string
+	flagCalBranch      string
+	flagCalSamples     int
+	flagCalConcurrency int
+	flagCalNoMem       bool
 )
 
 var calibrateCmd = &cobra.Command{
@@ -36,6 +37,9 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 			return fmt.Errorf("--corpus is required")
 		}
 		if err := validateSamples(flagCalSamples); err != nil {
+			return err
+		}
+		if err := validateConcurrency(flagCalConcurrency); err != nil {
 			return err
 		}
 		target, err := filepath.Abs(flagCalTarget)
@@ -57,11 +61,12 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 		}
 
 		ctx := context.Background()
-		verdicts, _, deltas, err := runBenchmark(ctx, target, probes, flagCalBranch, flagCalBranch, flagCalSamples, flagCalNoMem, j)
+		run := harnessRun(target, flagCalNoMem)
+		verdicts, _, deltas, err := runBenchmark(ctx, probes, flagCalBranch, flagCalBranch, flagCalSamples, flagCalConcurrency, run, j)
 		if err != nil {
 			return err
 		}
-		fmt.Println(report.RenderCalibration(verdicts, deltas))
+		fmt.Println(report.RenderCalibration(verdicts, deltas, flagCalConcurrency))
 		return nil
 	},
 }
@@ -73,6 +78,7 @@ func init() {
 	f.StringVar(&flagCalCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagCalBranch, "branch", "main", "the Environment branch to calibrate (run Before-vs-Before)")
 	f.IntVar(&flagCalSamples, "samples", 3, "samples per environment (odd N)")
+	f.IntVar(&flagCalConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagCalNoMem, "no-memory-snapshot", false, "skip pinning project memory into the run")
 	rootCmd.AddCommand(calibrateCmd)
 }

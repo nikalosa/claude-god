@@ -9,9 +9,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/nikalosa/claude-god/internal/parser"
 )
+
+// worktreeMu serializes `git worktree add`/`remove` against the target repo's
+// shared .git: concurrent runs would otherwise race on git's index lock. Held
+// only across the millisecond-scale git call, never across the run itself.
+var worktreeMu sync.Mutex
 
 type Opts struct {
 	TargetRepo    string
@@ -45,11 +51,16 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 	}
 
 	wt := filepath.Join(artifacts, "wt")
-	if err := gitC(ctx, opts.TargetRepo, "worktree", "add", "--detach", wt, opts.Branch); err != nil {
-		return nil, fmt.Errorf("worktree add: %w", err)
+	worktreeMu.Lock()
+	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--detach", wt, opts.Branch)
+	worktreeMu.Unlock()
+	if addErr != nil {
+		return nil, fmt.Errorf("worktree add: %w", addErr)
 	}
 	defer func() {
+		worktreeMu.Lock()
 		_ = gitC(context.Background(), opts.TargetRepo, "worktree", "remove", "--force", wt)
+		worktreeMu.Unlock()
 	}()
 
 	if !opts.NoMemSnapshot {

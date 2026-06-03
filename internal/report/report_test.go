@@ -28,7 +28,7 @@ func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
 		DurationMsBefore: 4000, DurationMsAfter: 3000,
 		ToolCallsBefore: 24, ToolCallsAfter: 6,
 	}
-	md := RenderMarkdown(verdicts, nil, d)
+	md := RenderMarkdown(verdicts, nil, d, 1)
 
 	idxCrit := strings.Index(md, "## Critical regressions")
 	idxNew := strings.Index(md, "## New passes")
@@ -61,14 +61,14 @@ func TestRenderMarkdown_Disagreement(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "flaky", Severity: dsl.Medium, Before: side(true, 2, 3), After: side(true, 2, 3), Status: aggregator.Stable},
 	}
-	md := RenderMarkdown(verdicts, nil, aggregator.Deltas{})
+	md := RenderMarkdown(verdicts, nil, aggregator.Deltas{}, 1)
 	if !strings.Contains(md, "disagreement") {
 		t.Errorf("disagreement marker missing: %s", md)
 	}
 }
 
 func TestRenderMarkdown_EmptyBuckets(t *testing.T) {
-	md := RenderMarkdown(nil, nil, aggregator.Deltas{})
+	md := RenderMarkdown(nil, nil, aggregator.Deltas{}, 1)
 	if !strings.Contains(md, "_none_") {
 		t.Errorf("expected empty bucket markers\n%s", md)
 	}
@@ -80,7 +80,7 @@ func TestRenderMarkdown_PreferenceSection(t *testing.T) {
 		Concise: judge.AfterBetter, Exhaustive: judge.Tie, Direct: judge.AfterBetter,
 		Reasoning: "the after answer is tighter",
 	}}
-	md := RenderMarkdown(nil, prefs, aggregator.Deltas{})
+	md := RenderMarkdown(nil, prefs, aggregator.Deltas{}, 1)
 
 	const heading = "## What reads better (open-ended)"
 	start := strings.Index(md, heading)
@@ -111,7 +111,7 @@ func TestRenderCalibration(t *testing.T) {
 		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
 		{ProbeID: "p1", RuleID: "flipped", Severity: dsl.Critical, Before: side(true, 3, 3), After: side(false, 0, 3), Status: aggregator.Regression},
 	}
-	md := RenderCalibration(verdicts, aggregator.Deltas{})
+	md := RenderCalibration(verdicts, aggregator.Deltas{}, 1)
 
 	if !strings.Contains(md, "# claude-validator calibration") {
 		t.Errorf("missing calibration title:\n%s", md)
@@ -134,7 +134,7 @@ func TestRenderCalibration_CleanFloor(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
 	}
-	md := RenderCalibration(verdicts, aggregator.Deltas{})
+	md := RenderCalibration(verdicts, aggregator.Deltas{}, 1)
 	if !strings.Contains(md, "Noise floor: 0 of 1") {
 		t.Errorf("expected clean floor:\n%s", md)
 	}
@@ -144,8 +144,25 @@ func TestRenderCalibration_CleanFloor(t *testing.T) {
 }
 
 func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
-	md := RenderMarkdown(nil, nil, aggregator.Deltas{})
+	md := RenderMarkdown(nil, nil, aggregator.Deltas{}, 1)
 	if strings.Contains(md, "What reads better") {
 		t.Errorf("preference section should be omitted when there are no open-ended probes:\n%s", md)
+	}
+}
+
+// TestRenderDeltas_DurationAdvisory checks that Duration is flagged advisory
+// under concurrency and left clean at --concurrency 1 — the report must never
+// silently present an inflated timing number as comparable.
+func TestRenderDeltas_DurationAdvisory(t *testing.T) {
+	d := aggregator.Deltas{DurationMsBefore: 4000, DurationMsAfter: 3000}
+
+	warned := RenderMarkdown(nil, nil, d, 8)
+	if !strings.Contains(warned, "advisory") || !strings.Contains(warned, "--concurrency 8") {
+		t.Errorf("expected a Duration advisory under concurrency:\n%s", warned)
+	}
+
+	clean := RenderMarkdown(nil, nil, d, 1)
+	if strings.Contains(clean, "advisory") {
+		t.Errorf("Duration must not be flagged advisory at --concurrency 1:\n%s", clean)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/nikalosa/claude-god/internal/runner"
 )
 
-func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, d aggregator.Deltas) string {
+func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, d aggregator.Deltas, concurrency int) string {
 	regressions, newPasses, others := bucket(verdicts)
 
 	var b strings.Builder
@@ -46,7 +46,7 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 
 	renderPreferences(&b, prefs)
 
-	renderDeltas(&b, "Cost / token / time deltas (medians, summed across probes)", d)
+	renderDeltas(&b, "Cost / token / time deltas (medians, summed across probes)", d, concurrency)
 
 	if len(others) > 0 {
 		fmt.Fprintln(&b, "## Other verdicts")
@@ -65,7 +65,7 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 // RenderCalibration renders a Before-vs-Before noise-floor report: the rules
 // that came out flaky on an identical Environment (the false-positive rate a
 // real comparison stands on), plus the Numbers spread. Never gates.
-func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas) string {
+func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas, concurrency int) string {
 	flaky := aggregator.Flaky(verdicts)
 	sort.Slice(flaky, func(i, j int) bool {
 		if flaky[i].ProbeID != flaky[j].ProbeID {
@@ -92,7 +92,7 @@ func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas) strin
 	}
 	fmt.Fprintln(&b)
 
-	renderDeltas(&b, "Numbers spread (medians, summed across probes)", d)
+	renderDeltas(&b, "Numbers spread (medians, summed across probes)", d, concurrency)
 	return b.String()
 }
 
@@ -103,7 +103,11 @@ func flakyReason(v aggregator.Verdict) string {
 	return "samples disagreed"
 }
 
-func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas) {
+func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas, concurrency int) {
+	durLabel := "Duration (ms)"
+	if concurrency > 1 {
+		durLabel += " ⚠ advisory"
+	}
 	fmt.Fprintln(b, "## "+title)
 	fmt.Fprintln(b)
 	fmt.Fprintln(b, "| Metric | Before | After | Δ |")
@@ -111,9 +115,12 @@ func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas) {
 	fmt.Fprintf(b, "| Total cost (USD) | %.6f | %.6f | %s |\n", d.CostBefore, d.CostAfter, deltaPct(d.CostBefore, d.CostAfter))
 	fmt.Fprintf(b, "| Input tokens (incl. cache) | %d | %d | %s |\n", d.InputTokBefore, d.InputTokAfter, deltaIntPct(d.InputTokBefore, d.InputTokAfter))
 	fmt.Fprintf(b, "| Output tokens | %d | %d | %s |\n", d.OutputTokBefore, d.OutputTokAfter, deltaIntPct(d.OutputTokBefore, d.OutputTokAfter))
-	fmt.Fprintf(b, "| Duration (ms) | %d | %d | %s |\n", d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
+	fmt.Fprintf(b, "| %s | %d | %d | %s |\n", durLabel, d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
 	fmt.Fprintf(b, "| Tool calls | %d | %d | %s |\n", d.ToolCallsBefore, d.ToolCallsAfter, deltaIntPct(d.ToolCallsBefore, d.ToolCallsAfter))
 	fmt.Fprintln(b)
+	if concurrency > 1 {
+		fmt.Fprintf(b, "> ⚠ Duration measured under --concurrency %d; advisory, not comparable. Rerun with --concurrency 1 for authoritative timing. Cost and tokens are exact regardless.\n\n", concurrency)
+	}
 }
 
 // renderPreferences renders the open-ended "what reads better" section. It is
