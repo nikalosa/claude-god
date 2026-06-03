@@ -127,7 +127,8 @@ func invokeClaude(ctx context.Context, cwd, prompt, streamPath string) error {
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
-		"--permission-mode", "bypassPermissions")
+		"--permission-mode", "bypassPermissions",
+		"--disallowedTools", "Agent")
 	cmd.Dir = cwd
 	cmd.Stdout = out
 	cmd.Stderr = os.Stderr

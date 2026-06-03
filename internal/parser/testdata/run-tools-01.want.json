@@ -1,0 +1,42 @@
+{
+  "session_id": "sess-tools-01",
+  "model": "claude-opus-4-8[1m]",
+  "cwd": "/tmp/target",
+  "final_text": "Use waitForCondition.",
+  "stop_reason": "end_turn",
+  "is_error": false,
+  "num_turns": 2,
+  "timing": {
+    "duration_ms": 5000,
+    "duration_api_ms": 4200,
+    "ttft_ms": 600
+  },
+  "usage": {
+    "input_tokens": 6000,
+    "output_tokens": 200,
+    "cache_creation_input_tokens": 1000,
+    "cache_read_input_tokens": 3000
+  },
+  "total_cost_usd": 0.2,
+  "model_usage": {
+    "claude-opus-4-8[1m]": {
+      "input_tokens": 12000,
+      "output_tokens": 1500,
+      "cache_creation_input_tokens": 4000,
+      "cache_read_input_tokens": 80000,
+      "cost_usd": 0.19
+    },
+    "claude-haiku-4-5-20251001": {
+      "input_tokens": 500,
+      "output_tokens": 50,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cost_usd": 0.01
+    }
+  },
+  "tool_calls": [
+    { "name": "Grep" },
+    { "name": "Read" },
+    { "name": "Read" }
+  ]
+}

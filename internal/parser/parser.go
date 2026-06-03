@@ -21,13 +21,13 @@ type RunRecord struct {
 	TotalCost  float64               `json:"total_cost_usd"`
 	ModelUsage map[string]ModelUsage `json:"model_usage,omitempty"`
 
-	// ToolCalls is the ordered list of tool invocations from assistant events.
-	// Empty in flat (no-tool) runs. Shape and sub-agent attribution land once a
-	// tool-use fixture is banked — see SubAgentSeam in Parse.
+	// ToolCalls is the ordered list of top-level tool invocations. Sub-agent
+	// internal calls are excluded (see the assistant case in Parse); empty in
+	// flat no-tool runs.
 	ToolCalls []ToolCall `json:"tool_calls"`
 
-	// FileMutations is populated by the harness (Issue #4) from the post-run
-	// git diff; the parser leaves it nil.
+	// FileMutations is reserved for the harness to fill from the post-run git
+	// diff; the parser always leaves it nil.
 	FileMutations []FileMutation `json:"file_mutations,omitempty"`
 }
 
@@ -59,6 +59,35 @@ type ToolCall struct {
 type FileMutation struct {
 	Path string `json:"path"`
 	Op   string `json:"op"`
+}
+
+// TotalInputTokens returns session-wide input tokens (uncached + cache creation +
+// cache read) summed across all models. The stream's result.usage reports only the
+// final turn, so for multi-turn or sub-agent runs it badly undercounts (observed
+// 10-13x); modelUsage is the true aggregate and the basis for total_cost_usd. Falls
+// back to the final-turn Usage when modelUsage is absent.
+func (r *RunRecord) TotalInputTokens() int {
+	if len(r.ModelUsage) == 0 {
+		return r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens
+	}
+	total := 0
+	for _, m := range r.ModelUsage {
+		total += m.InputTokens + m.CacheCreationInputTokens + m.CacheReadInputTokens
+	}
+	return total
+}
+
+// TotalOutputTokens returns session-wide output tokens summed across all models,
+// with the same final-turn fallback as TotalInputTokens.
+func (r *RunRecord) TotalOutputTokens() int {
+	if len(r.ModelUsage) == 0 {
+		return r.Usage.OutputTokens
+	}
+	total := 0
+	for _, m := range r.ModelUsage {
+		total += m.OutputTokens
+	}
+	return total
 }
 
 func Parse(r io.Reader) (*RunRecord, error) {
@@ -100,12 +129,30 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			rec.Cwd = sys.Cwd
 
 		case "assistant":
-			// SubAgentSeam: every assistant event carries parent_tool_use_id.
-			// Flat runs see it as null; a non-null value identifies events from
-			// a spawned Agent session, whose tokens must attribute back to the
-			// parent Agent tool_use block. Implementation deferred until a
-			// sub-agent fixture is banked — see testdata/stream-json-shape.md.
-			// Flat case has nothing to extract here.
+			// Count top-level tool calls only: parent_tool_use_id is null for the
+			// main session and non-null for a spawned Agent sub-session's internal
+			// calls, which we skip. The harness disables subagents
+			// (--disallowedTools "Agent"), so in practice it is always null.
+			var am struct {
+				ParentToolUseID *string `json:"parent_tool_use_id"`
+				Message         struct {
+					Content []struct {
+						Type string `json:"type"`
+						Name string `json:"name"`
+					} `json:"content"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal(line, &am); err != nil {
+				return nil, fmt.Errorf("parse assistant: %w", err)
+			}
+			if am.ParentToolUseID != nil {
+				continue
+			}
+			for _, b := range am.Message.Content {
+				if b.Type == "tool_use" {
+					rec.ToolCalls = append(rec.ToolCalls, ToolCall{Name: b.Name})
+				}
+			}
 
 		case "result":
 			var raw rawResult

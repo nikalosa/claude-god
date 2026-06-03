@@ -73,8 +73,8 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 			continue
 		}
 		costs = append(costs, r.Record.TotalCost)
-		inputs = append(inputs, r.Record.Usage.InputTokens)
-		outputs = append(outputs, r.Record.Usage.OutputTokens)
+		inputs = append(inputs, r.Record.TotalInputTokens())
+		outputs = append(outputs, r.Record.TotalOutputTokens())
 		durations = append(durations, r.Record.Timing.DurationMs)
 		toolCalls = append(toolCalls, len(r.Record.ToolCalls))
 	}

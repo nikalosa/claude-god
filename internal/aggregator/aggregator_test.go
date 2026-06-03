@@ -84,7 +84,6 @@ func TestAggregate_MajorityVoteAndDisagreement(t *testing.T) {
 	if agg.After.Rules[0].PassCount != 1 || !agg.After.Rules[0].Disagreement {
 		t.Errorf("after votes: %+v", agg.After.Rules[0])
 	}
-	// Medians
 	if !nearly(agg.Before.MedianCost, 0.10) {
 		t.Errorf("before median cost = %v", agg.Before.MedianCost)
 	}
@@ -229,5 +228,29 @@ func TestHasCriticalRegression(t *testing.T) {
 		{Severity: dsl.Critical, Status: Regression},
 	}) {
 		t.Error("critical regression should be true")
+	}
+}
+
+func TestAggregate_InputOutputFromModelUsage(t *testing.T) {
+	// result.usage reports only the final turn; the true session total lives in
+	// modelUsage. Aggregation must sum modelUsage, not result.usage.
+	run := func() Run {
+		return Run{Record: &parser.RunRecord{
+			// Final-turn snapshot — must be IGNORED by the metric.
+			Usage: parser.Usage{InputTokens: 6000, OutputTokens: 200, CacheCreationInputTokens: 1000, CacheReadInputTokens: 3000},
+			ModelUsage: map[string]parser.ModelUsage{
+				"opus":  {InputTokens: 10000, OutputTokens: 1000, CacheCreationInputTokens: 2000, CacheReadInputTokens: 50000},
+				"haiku": {InputTokens: 500, OutputTokens: 50},
+			},
+		}}
+	}
+	po := ProbeOutcome{Before: EnvOutcome{Runs: []Run{run(), run(), run()}}}
+	agg := Aggregate(po)
+	// input = (10000+2000+50000) + 500 = 62500 (NOT result.usage's 10000)
+	if agg.Before.MedianInputTok != 62500 {
+		t.Errorf("input median = %d, want 62500 (modelUsage aggregate)", agg.Before.MedianInputTok)
+	}
+	if agg.Before.MedianOutputTok != 1050 {
+		t.Errorf("output median = %d, want 1050", agg.Before.MedianOutputTok)
 	}
 }
