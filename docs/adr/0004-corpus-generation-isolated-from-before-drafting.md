@@ -1,6 +1,6 @@
 # Corpus generation is an isolated, from-Before *drafting* skill
 
-**Status:** accepted (amends the corpus-generation deferral in [ADR-0002](0002-report-not-gate-and-preference-judging.md))
+**Status:** superseded by [ADR-0007](0007-drop-regression-detection-three-stream-generator.md) — the Closed-book router, Weak probe, and doc-borne proof below are retired now that regression-detection is no longer a goal. Historical record only.
 
 ADR-0002 deferred auto-generating the corpus because "an LLM reading a bloated Environment is blind to the same buried rules the bloat hides." We reintroduce generation — but as a human-backstopped **drafting** skill, not unattended auto-generation, which sidesteps that objection. A Claude Code skill runs `claude -p` against the **Before** branch over hand-selected source text (CLAUDE.md, Claude rules, docs, pasted text) — doc-isolated for rule-based probes, codebase-aware for open-ended ones — drafts probes, and the dev reviews/edits them conversationally before freezing the result as the repo's behavioral source-of-truth corpus.
 

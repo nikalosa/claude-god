@@ -5,7 +5,8 @@ Be extremely concise. Sacrifice grammar for the sake of concision. Speak as unde
 
 `claude-god` = umbrella for Claude Code tooling experiments. First tool: `claude-validator` — A/B benchmarks CLAUDE.md context configs for behavioral-fidelity regressions.
 
-Full design + locked decisions in @docs/PRD.md — read when needed, never restate here.
+Shared vocabulary in CONTEXT.md — read first, use those terms.
+Full design + locked decisions in docs/PRD.md — read when doing design work.
 
 ## Principles:
 - Think first: state assumptions, ask when unclear, push back on overcomplication.

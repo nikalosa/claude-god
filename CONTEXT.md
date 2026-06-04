@@ -1,6 +1,6 @@
 # claude-validator
 
-The language of comparing two Claude environments (the messy "before" and the restructured "after") and reporting what improved and what quietly broke. The product is a **decision-support report a human reads** — not an automated gate. Terms here are the project's vocabulary; general programming concepts are excluded.
+The language of comparing two Claude environments (the messy "before" and the restructured "after") and reporting what improved and what changed. The product is a **decision-support report a human reads** — not an automated gate. Terms here are the project's vocabulary; general programming concepts are excluded.
 
 **Environment** here means the whole Claude context configuration of a project: its **CLAUDE.md** (root + nested), **Claude rules** (`.claude/rules/*`), **docs**, and **memory**. These are distinct parts — "Claude rules" is *only* `.claude/rules/*`, never an umbrella for the others.
 
@@ -16,27 +16,31 @@ _Avoid_: Repo-under-test, subject, SUT.
 One of the two configurations being compared, pinned to a git branch: **Before** (baseline) and **After** (the change under test). Every probe runs in both.
 _Avoid_: Config, variant, arm, side (except `VerdictSide`, which is the per-environment half of a verdict).
 
-**Tier**:
-A difficulty level of probing, L1–L4: recall (L1), design Q&A (L2), plan-only (L3), full implementation (L4). Higher tiers cost more and give higher-fidelity signal.
-_Avoid_: Level in prose (the `--level` flag keeps the name), stage, phase.
+**Mode**:
+What a probe asks Claude to produce: **Ask** (answer a question) or **Plan** (produce a step-by-step plan, *not* execute it). Executing the task is out of scope for v1.
+_Avoid_: Tier, Level, L1–L4 (retired — see Flagged ambiguities), stage, phase.
 
 ### Corpus
 
 **Corpus**:
-The per-target set of probes — the **dataset** the dev runs Claude against, before and after. Dev-authored in v1 (tool-assisted); auto-generation from the Environment is the next step. The validator ships an example corpus only; a target owns its real corpus.
-_Avoid_: Suite, test set. "Dataset" is an acceptable synonym.
+The per-target set of probes — the **dataset** the dev runs Claude against, before and after. Drafted by the **Generator**, then reviewed and finalized by the dev. The validator ships an example corpus only; a target owns its real corpus.
+_Avoid_: Suite, test set, training set. "Dataset" is an acceptable synonym.
 
 **Probe**:
-One prompt sent to Claude, plus how its response is graded. The unit of the corpus. Two kinds: **Rule-based probe** and **Open-ended probe**.
+One prompt sent to Claude, plus how its response is graded. The unit of the corpus. Three kinds, one per generation stream: **Rule-based probe**, **Open-ended probe**, **Plan probe**.
 _Avoid_: Test, case, question.
 
 **Rule-based probe**:
-A probe graded *absolutely* — each environment's response is checked on its own against a fixed set of **Rules** ("did it take into account what it had to?"). The grader never reads the other environment's response; a **Regression** is found by comparing the two PASS/FAIL outcomes. This is where "what compromised" comes from.
+A probe drawn from the **docs**, where the answer is doc-stated (e.g. "how are monetary amounts typed?"). Graded *absolutely* — each environment's response is checked on its own against a fixed set of **Rules** ("did it take into account what it had to?"). The grader never reads the other environment's response; the dev compares the two PASS/FAIL outcomes by eye. **Ask** mode.
 _Avoid_: Closed probe, deterministic probe.
 
 **Open-ended probe**:
-An architectural / design question with no fixed rule list (e.g. "how is RBAC implemented across these services?"). Graded *comparatively* by the **Judge** in a head-to-head **Preference comparison** — which environment's answer is better for a dev to read.
+A system/design question about the **code/project** with no fixed answer (e.g. "how do the betting and ledger services communicate?"). Graded *comparatively* by the **Judge** in a head-to-head **Preference comparison** — which environment's answer reads better for a dev — alongside **Numbers**. **Ask** mode.
 _Avoid_: Architectural probe (use as descriptor only), fuzzy probe.
+
+**Plan probe**:
+A task prompt where Claude produces a **step-by-step plan** (no execution). The two environments' plans are compared by **Preference comparison** plus **Numbers** (before-plan vs after-plan). Graded like an Open-ended probe, but in **Plan** mode.
+_Avoid_: Plan-vs-plan probe, design probe, L3.
 
 **Rule**:
 A single *behavior* expected of Claude — the idea/principle that must survive a restructure — carrying a **Severity** (`critical | high | medium`) and one or more **Checks**. Graded by behavior, never by whether any source text survived.
@@ -47,49 +51,37 @@ _Avoid_: Assertion, requirement, expectation. **Never** use bare "rule(s)" for s
 _Avoid_: "Rules" (bare — means the graded unit); using "Claude rules" for CLAUDE.md or docs.
 
 **Check**:
-One predicate evaluated against a run. Pattern-first (e.g. `text_matches`); the **Judge** is the escape hatch for open-ended rules. A rule passes only if all its checks pass.
+One predicate evaluated against a run. Pattern-first (e.g. `text_matches`); the **Judge** is the escape hatch for prose. A rule passes only if all its checks pass.
 _Avoid_: Predicate (reserve for the DSL family), matcher, validator (overloaded with the tool name).
 
 ### Corpus generation
 
 **Generator**:
-The drafting step that turns hand-selected source text — **CLAUDE.md**, **Claude rules**, **docs**, and any pasted-in text — into a draft **Corpus**, run once against the **Before** environment and then frozen. Access tracks **probe kind, not tier**: **rule-based probes** must be doc-borne, proven by the **Closed-book check** (the generator may still read code for schema-grounded rubric facts); **open-ended probes** (incl. architectural L2) may read the codebase, being report-only and unable to false-pass. The empty-dir isolation it leans on is the Judge's ([ADR-0003](docs/adr/0003-judge-backend-claude-p.md)). A **drafting** aid, never an unreviewed author — the dev reviews and edits conversationally before freezing.
+The drafting helper that produces the **Corpus** in three independent streams: **Rule-based probes** from hand-selected **docs only**; **Open-ended probes** and **Plan probes** from the whole **project** (codebase-aware). A *drafting* aid, never an unreviewed author — the dev talks to it, edits probes, drops any rule-based probe Claude can answer without the docs, and finalizes the set. Run once against **Before**, then frozen.
 _Avoid_: Corpus builder, scraper, auto-author.
 
-**Closed-book check**:
-The **Generator**'s router and quality gate, run with the codebase present but the **docs stripped**. Three outcomes: answer **breaks** without docs → doc-borne → admit as **rule-based probe** (a regression is detectable); answer **survives** on the code → not doc-borne → demote to **open-ended probe** (preference, report-only); answer survives even with no code → prior-borne → **Weak probe**. For doc-only convention rules the codebase is irrelevant, so the check reduces to full isolation — the cheap form of the planted-fact (`zilworld`) trick the detection harness uses.
-_Avoid_: Open-book test, ablation (reserve for the detection harness).
-
-**Weak probe**:
-A candidate whose answer **survives** its **Closed-book check** with neither docs nor code carrying it — answerable from training priors, so a dropped **Rule** would never flip it. Flagged for the dev's review, never frozen silently.
-_Avoid_: Trivial probe, redundant probe.
-
 **Steering config**:
-The checked-in artifact (selected-doc globs + emphasis/skip notes + proposed **Severities**) that drives the **Generator**, committed to the **Before** branch beside the frozen **Corpus** so generation stays reproducible and auditable.
+The checked-in artifact that drives the **Generator**: which **docs** feed the Rule-based stream (globs), emphasis/skip notes, and proposed **Severities**. Committed to **Before** beside the frozen **Corpus** so generation stays reproducible.
 _Avoid_: Prompt (bare), generation prompt.
 
 ### Grading & outcome
 
 **Run**:
-One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled N=3 per environment. A run is **read-only**: the model keeps `Read/Grep/Glob` to inspect the Environment but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md)) — the graded signal is the assistant *text*, never an artifact. Skills (`.claude/skills/*`) sit outside the Environment, so disabling them removes noise, not signal.
-
-**Detect**:
-The report correctly showing a real change — a genuinely dropped rule appearing as a **Regression**. The open worry: the tool has only ever been run Before-vs-identical-Before (correctly showing "nothing changed"); it has not yet been shown to *detect* a deliberately removed rule. Distinct from a **false positive** (noise shown as a regression) and the **noise floor** (the false-positive rate measured by a Before-vs-Before calibration run).
-_Avoid_: Fire, trigger, trip, alarm.
+One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled N=3 per environment. A run is **read-only**: the model keeps `Read/Grep/Glob` to inspect the Environment but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md)) — the graded signal is the assistant *text*, never an artifact.
 
 **Regression**:
-A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After). This is "what compromised." A `critical`-severity regression also sets a non-zero exit code — a harmless optional bit for anyone wiring CI later, not the product.
+A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After) — "what changed for the worse." Visible in the matrix and read by the dev; the validator does not gate, score, or count it.
 
 **New pass**:
-A rule that flipped FAIL→PASS — "what improved."
+A rule that flipped FAIL → PASS — "what improved." Read by the dev.
 
 **Disagreement**:
-The N samples of one rule in one environment splitting (not unanimous). Surfaced as flakiness, distinct from a clean Regression.
+The N samples of one rule in one environment splitting (not unanimous). Surfaced as flakiness, distinct from a clean flip.
 
 ### Grading engines
 
 **Judge**:
-The LLM-based grader. Runs in two modes: **Rubric check** (absolute, for rule-based probes a regex cannot express — gates) and **Preference comparison** (comparative, for open-ended probes — report-only). Isolated so its run-to-run noise never touches the deterministic pattern path.
+The LLM-based grader. Runs in two modes: **Rubric check** (absolute, for rule-based probes a regex cannot express) and **Preference comparison** (comparative, for open-ended and plan probes). Isolated so its run-to-run noise never touches the deterministic pattern path. Report-only — never gates.
 _Avoid_: Grader (that's the whole grading step), evaluator, LLM-as-judge.
 
 **Rubric check**:
@@ -101,21 +93,23 @@ The Judge in comparative mode: reads the Before and After responses head-to-head
 _Avoid_: Scoring, rating, A/B preference (reserve A/B for the whole benchmark).
 
 **Numbers**:
-The cost / token / time deltas, captured numerically from every run and always compared Before→After regardless of probe kind. No LLM. Report-only. Within Numbers, **cost and tokens are exact** — the same work bills the same however the runs are executed — while **time (Duration) is advisory**: it inflates when runs share resources, so the report marks it not-comparable unless the runs were unparallelized. The exact Numbers are the resource north-star; Duration is a rough read.
+The **efficiency signal — the main thing a restructure is trying to improve.** The cost, token, **tool-call**, and time deltas, captured numerically from every run and always compared Before→After regardless of probe kind. No LLM, never gates — the dev reads it. **Cost, tokens, and tool-call counts are exact** — the same work bills and calls the same however the runs are executed — while **time (Duration) is advisory**: it inflates when runs share resources, so the report marks it not-comparable unless the runs were unparallelized. Whether the tool calls were the *right* ones (read the proper chunk vs grepped around blindly) is read from the run's trace, not a number.
 _Avoid_: Metrics (overloaded), stats.
 
 ## Flagged ambiguities
 
-**"rule"** — overloaded, now resolved:
+**"rule"** — overloaded, resolved:
 - **Rule** (bare) = the graded behavior unit in the corpus.
 - **Claude rules** = *only* the `.claude/rules/*` source files — never CLAUDE.md or docs.
-A restructure freely rewrites CLAUDE.md, Claude rules, and docs; the validator checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what compromised."
+A restructure freely rewrites CLAUDE.md, Claude rules, and docs; the validator checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what changed."
+
+**Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The `--level` CLI flag is just a selector over which probes to run; it carries no conceptual weight.
 
 ## Example dialogue
 
-> **Dev:** The report says the After environment regressed `monetary_as_string`.
-> **Expert:** That's a "what compromised" finding — you dropped a line that mattered. It only counts if the majority of the three Before runs passed and the majority of the After runs failed. If the three split, that's disagreement, not a regression.
-> **Dev:** It's a rule-based design probe graded by the Judge against a rubric — same treatment?
-> **Expert:** Same. The Judge's rubric check just turns the answer into per-fact pass/fail; once it's a rule outcome it reads like any other. What we never want is the Judge's own noise to *invent* a regression on a clean run — that's why we measure the noise floor with a Before-vs-Before pass first.
-> **Dev:** And the RBAC architecture probe?
-> **Expert:** That's open-ended — no rubric. The Judge does a preference comparison: which answer reads better, both orderings. That's a "what improved/worsened" signal you read by eye, alongside the token and time numbers. You decide if the restructure was worth it.
+> **Dev:** The report shows Before and After both answered `monetary_as_string` correctly.
+> **Expert:** Then that rule survived the restructure — read it as "nothing changed here." It's a rule-based probe: each environment graded on its own against the rule, no head-to-head. If Before passed and After failed, that flip is a regression you'd see in the matrix — but the tool only shows it, it never blocks.
+> **Dev:** And the "how do betting and ledger communicate" probe?
+> **Expert:** Open-ended — no fixed answer. The Judge does a preference comparison, both orderings, and you read it next to the token and time **Numbers**. You decide if After is better.
+> **Dev:** Same for the planning task?
+> **Expert:** Same shape, Plan mode — Before's plan vs After's plan, preference plus Numbers. Three streams, one report, you make the call.
