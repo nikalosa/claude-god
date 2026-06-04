@@ -102,6 +102,27 @@ func TestGradeProbe_OpenEnded(t *testing.T) {
 	}
 }
 
+func TestGradeProbe_Plan(t *testing.T) {
+	probe := dsl.Probe{ID: "rollout", Prompt: "plan it?", Kind: dsl.Plan}
+	j := judge.StubJudge{Pref: judge.Preference{
+		Outcome: judge.BeforeBetter, Concise: judge.BeforeBetter,
+		Exhaustive: judge.Tie, Direct: judge.BeforeBetter, Reasoning: "clearer steps",
+	}}
+	agg, pref, err := GradeProbe(ctx, probe, recs("a", "a", "a"), recs("b", "b", "b"), j)
+	if err != nil {
+		t.Fatalf("GradeProbe: %v", err)
+	}
+	if pref == nil {
+		t.Fatal("plan probe must produce a preference")
+	}
+	if pref.ProbeID != "rollout" || pref.Outcome != judge.BeforeBetter {
+		t.Errorf("unexpected preference: %+v", pref)
+	}
+	if len(agg.Before.Rules) != 0 || len(agg.After.Rules) != 0 {
+		t.Errorf("plan probe must have no rule results")
+	}
+}
+
 func TestGradeProbe_OpenEnded_NilJudgeErrors(t *testing.T) {
 	probe := dsl.Probe{ID: "design", Prompt: "q", Kind: dsl.OpenEnded}
 	if _, _, err := GradeProbe(ctx, probe, recs("a"), recs("b"), nil); err == nil {
