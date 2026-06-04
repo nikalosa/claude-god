@@ -217,20 +217,6 @@ func TestFlaky(t *testing.T) {
 	}
 }
 
-func TestHasCriticalRegression(t *testing.T) {
-	if HasCriticalRegression([]Verdict{
-		{Severity: dsl.High, Status: Regression},
-		{Severity: dsl.Critical, Status: Stable},
-	}) {
-		t.Error("no critical regression should be false")
-	}
-	if !HasCriticalRegression([]Verdict{
-		{Severity: dsl.Critical, Status: Regression},
-	}) {
-		t.Error("critical regression should be true")
-	}
-}
-
 func TestAggregate_InputOutputFromModelUsage(t *testing.T) {
 	// result.usage reports only the final turn; the true session total lives in
 	// modelUsage. Aggregation must sum modelUsage, not result.usage.

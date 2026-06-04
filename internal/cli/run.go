@@ -79,11 +79,6 @@ var runCmd = &cobra.Command{
 			return err
 		}
 		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas, flagConcurrency))
-
-		if aggregator.HasCriticalRegression(verdicts) {
-			fmt.Fprintln(os.Stderr, "FAIL: critical regression detected")
-			os.Exit(1)
-		}
 		return nil
 	},
 }

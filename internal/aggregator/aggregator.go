@@ -255,15 +255,6 @@ func Flaky(vs []Verdict) []Verdict {
 	return out
 }
 
-func HasCriticalRegression(vs []Verdict) bool {
-	for _, v := range vs {
-		if v.Severity == dsl.Critical && v.Status == Regression {
-			return true
-		}
-	}
-	return false
-}
-
 func median(vs []float64) float64 {
 	n := len(vs)
 	if n == 0 {

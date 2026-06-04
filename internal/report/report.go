@@ -10,56 +10,75 @@ import (
 	"github.com/nikalosa/claude-god/internal/runner"
 )
 
+// RenderMarkdown renders the decision-support report efficiency-first: the
+// Numbers (the thing a restructure is trying to improve) lead, then one folded
+// rule matrix where regression/new-pass is just a Status cell, then the
+// open-ended preference read. Never gates — the dev reads it (ADR-0007).
 func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, d aggregator.Deltas, concurrency int) string {
-	regressions, newPasses, others := bucket(verdicts)
+	var regressions, newPasses int
+	for _, v := range verdicts {
+		switch v.Status {
+		case aggregator.Regression:
+			regressions++
+		case aggregator.NewPass:
+			newPasses++
+		}
+	}
 
 	var b strings.Builder
 	fmt.Fprintln(&b, "# claude-validator report")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "%d verdicts: %d critical regressions, %d new passes, %d other; %d open-ended\n",
-		len(verdicts), countCritical(regressions), len(newPasses), len(others), len(prefs))
+	fmt.Fprintf(&b, "%d rules · %d regression(s) · %d new pass(es) · %d open-ended\n",
+		len(verdicts), regressions, newPasses, len(prefs))
 	fmt.Fprintln(&b)
 
-	fmt.Fprintln(&b, "## Critical regressions")
-	fmt.Fprintln(&b)
-	if len(regressions) == 0 {
-		fmt.Fprintln(&b, "_none_")
-	} else {
-		for _, v := range regressions {
-			fmt.Fprintf(&b, "- **[%s]** `%s` (%s) — %s → %s\n",
-				v.ProbeID, v.RuleID, v.Severity, fmtSide(v.Before), fmtSide(v.After))
-		}
-	}
-	fmt.Fprintln(&b)
-
-	fmt.Fprintln(&b, "## New passes")
-	fmt.Fprintln(&b)
-	if len(newPasses) == 0 {
-		fmt.Fprintln(&b, "_none_")
-	} else {
-		for _, v := range newPasses {
-			fmt.Fprintf(&b, "- **[%s]** `%s` (%s) — %s → %s\n",
-				v.ProbeID, v.RuleID, v.Severity, fmtSide(v.Before), fmtSide(v.After))
-		}
-	}
-	fmt.Fprintln(&b)
-
+	renderDeltas(&b, "Efficiency (Numbers)", d, concurrency)
+	renderRules(&b, verdicts)
 	renderPreferences(&b, prefs)
 
-	renderDeltas(&b, "Cost / token / time deltas (medians, summed across probes)", d, concurrency)
+	return b.String()
+}
 
-	if len(others) > 0 {
-		fmt.Fprintln(&b, "## Other verdicts")
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "| Probe | Rule | Severity | Before | After | Status |")
-		fmt.Fprintln(&b, "|---|---|---|---|---|---|")
-		for _, v := range others {
-			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n",
-				v.ProbeID, v.RuleID, v.Severity, fmtSide(v.Before), fmtSide(v.After), v.Status)
-		}
+// renderRules renders the single folded matrix of every graded rule, sorted by
+// probe then rule. The Status cell carries the regression/new-pass observation;
+// the dev reads the Before→After columns by eye. No gate, no headline section.
+func renderRules(b *strings.Builder, verdicts []aggregator.Verdict) {
+	fmt.Fprintln(b, "## Rules")
+	fmt.Fprintln(b)
+	if len(verdicts) == 0 {
+		fmt.Fprintln(b, "_none_")
+		fmt.Fprintln(b)
+		return
 	}
 
-	return b.String()
+	sorted := append([]aggregator.Verdict(nil), verdicts...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].ProbeID != sorted[j].ProbeID {
+			return sorted[i].ProbeID < sorted[j].ProbeID
+		}
+		return sorted[i].RuleID < sorted[j].RuleID
+	})
+
+	fmt.Fprintln(b, "| Probe | Rule | Severity | Before | After | Status |")
+	fmt.Fprintln(b, "|---|---|---|---|---|---|")
+	for _, v := range sorted {
+		fmt.Fprintf(b, "| %s | `%s` | %s | %s | %s | %s |\n",
+			v.ProbeID, v.RuleID, v.Severity, fmtSide(v.Before), fmtSide(v.After), statusLabel(v.Status))
+	}
+	fmt.Fprintln(b)
+}
+
+func statusLabel(s aggregator.Status) string {
+	switch s {
+	case aggregator.Regression:
+		return "regression"
+	case aggregator.NewPass:
+		return "new pass"
+	case aggregator.StableFail:
+		return "held (fail)"
+	default:
+		return "held"
+	}
 }
 
 // RenderCalibration renders a Before-vs-Before noise-floor report: the rules
@@ -168,41 +187,6 @@ func fmtSide(s aggregator.VerdictSide) string {
 		return fmt.Sprintf("%s (%s ⚠ disagreement)", verdict, frac)
 	}
 	return fmt.Sprintf("%s (%s)", verdict, frac)
-}
-
-func bucket(vs []aggregator.Verdict) (regressions, newPasses, others []aggregator.Verdict) {
-	for _, v := range vs {
-		switch v.Status {
-		case aggregator.Regression:
-			regressions = append(regressions, v)
-		case aggregator.NewPass:
-			newPasses = append(newPasses, v)
-		default:
-			others = append(others, v)
-		}
-	}
-	sortByID := func(s []aggregator.Verdict) {
-		sort.Slice(s, func(i, j int) bool {
-			if s[i].ProbeID != s[j].ProbeID {
-				return s[i].ProbeID < s[j].ProbeID
-			}
-			return s[i].RuleID < s[j].RuleID
-		})
-	}
-	sortByID(regressions)
-	sortByID(newPasses)
-	sortByID(others)
-	return
-}
-
-func countCritical(vs []aggregator.Verdict) int {
-	n := 0
-	for _, v := range vs {
-		if v.Severity == "critical" {
-			n++
-		}
-	}
-	return n
 }
 
 func deltaPct(before, after float64) string {

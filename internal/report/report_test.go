@@ -14,13 +14,14 @@ func side(pass bool, p, n int) aggregator.VerdictSide {
 	return aggregator.VerdictSide{Pass: pass, PassCount: p, Total: n, Disagreement: p != 0 && p != n}
 }
 
-func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
+func TestRenderMarkdown_EfficiencyFirstFoldedMatrix(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "stable_pass", Severity: dsl.Critical, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
 		{ProbeID: "p1", RuleID: "regressed", Severity: dsl.Critical, Before: side(true, 3, 3), After: side(false, 0, 3), Status: aggregator.Regression},
 		{ProbeID: "p2", RuleID: "newly_passes", Severity: dsl.High, Before: side(false, 0, 3), After: side(true, 3, 3), Status: aggregator.NewPass},
 		{ProbeID: "p2", RuleID: "still_failing", Severity: dsl.Medium, Before: side(false, 0, 3), After: side(false, 0, 3), Status: aggregator.StableFail},
 	}
+	prefs := []runner.PreferenceResult{{ProbeID: "design", Outcome: judge.AfterBetter}}
 	d := aggregator.Deltas{
 		CostBefore: 0.20, CostAfter: 0.14,
 		InputTokBefore: 2000, InputTokAfter: 1400,
@@ -28,26 +29,34 @@ func TestRenderMarkdown_OrderingAndSections(t *testing.T) {
 		DurationMsBefore: 4000, DurationMsAfter: 3000,
 		ToolCallsBefore: 24, ToolCallsAfter: 6,
 	}
-	md := RenderMarkdown(verdicts, nil, d, 1)
+	md := RenderMarkdown(verdicts, prefs, d, 1)
 
-	idxCrit := strings.Index(md, "## Critical regressions")
-	idxNew := strings.Index(md, "## New passes")
-	idxDeltas := strings.Index(md, "## Cost / token / time deltas")
-	idxOther := strings.Index(md, "## Other verdicts")
-	if idxCrit < 0 || idxNew < 0 || idxDeltas < 0 || idxOther < 0 {
+	// Efficiency (Numbers) leads, then the rule matrix, then the preference read.
+	idxEff := strings.Index(md, "## Efficiency (Numbers)")
+	idxRules := strings.Index(md, "## Rules")
+	idxPrefs := strings.Index(md, "## What reads better (open-ended)")
+	if idxEff < 0 || idxRules < 0 || idxPrefs < 0 {
 		t.Fatalf("missing section\n%s", md)
 	}
-	if !(idxCrit < idxNew && idxNew < idxDeltas && idxDeltas < idxOther) {
-		t.Errorf("section ordering wrong: crit=%d new=%d deltas=%d other=%d", idxCrit, idxNew, idxDeltas, idxOther)
+	if !(idxEff < idxRules && idxRules < idxPrefs) {
+		t.Errorf("efficiency must lead, then rules, then preferences: eff=%d rules=%d prefs=%d", idxEff, idxRules, idxPrefs)
 	}
-	if !strings.Contains(md, "`regressed`") {
-		t.Error("regression rule not listed")
+
+	// The old gate-framed headline sections are gone.
+	for _, gone := range []string{"## Critical regressions", "## New passes", "## Other verdicts"} {
+		if strings.Contains(md, gone) {
+			t.Errorf("old section %q must be removed:\n%s", gone, md)
+		}
 	}
-	if !strings.Contains(md, "`newly_passes`") {
-		t.Error("new pass rule not listed")
+
+	// One folded matrix carries every rule, with regression/new-pass demoted to a Status cell.
+	for _, want := range []string{"| Status |", "`stable_pass`", "`regressed`", "`newly_passes`", "`still_failing`", "regression", "new pass"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("folded matrix missing %q:\n%s", want, md)
+		}
 	}
 	if !strings.Contains(md, "PASS (3/3)") {
-		t.Errorf("pass-count not rendered: %s", md)
+		t.Errorf("pass-count not rendered:\n%s", md)
 	}
 	if !strings.Contains(md, "0.140000") {
 		t.Error("after cost not rendered")
