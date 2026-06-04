@@ -135,11 +135,17 @@ func invokeClaude(ctx context.Context, cwd, prompt, streamPath string) error {
 	}
 	defer out.Close()
 
+	// Runs are read-only (ADR-0006): grading reads the assistant text, so the
+	// model needs Read/Grep/Glob to inspect the env but nothing that mutates the
+	// tree, hits the network, or opens a browser. Bare-name disallows hold even
+	// under bypassPermissions; --disable-slash-commands drops skills, which are
+	// not part of the Environment under test.
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
-		"--disallowedTools", "Agent")
+		"--disallowedTools", "Agent", "Bash", "Edit", "Write", "WebFetch",
+		"--disable-slash-commands")
 	cmd.Dir = cwd
 	cmd.Stdout = out
 	cmd.Stderr = os.Stderr

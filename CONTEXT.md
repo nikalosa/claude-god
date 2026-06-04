@@ -71,7 +71,7 @@ _Avoid_: Prompt (bare), generation prompt.
 ### Grading & outcome
 
 **Run**:
-One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled N=3 per environment.
+One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled N=3 per environment. A run is **read-only**: the model keeps `Read/Grep/Glob` to inspect the Environment but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md)) — the graded signal is the assistant *text*, never an artifact. Skills (`.claude/skills/*`) sit outside the Environment, so disabling them removes noise, not signal.
 
 **Detect**:
 The report correctly showing a real change — a genuinely dropped rule appearing as a **Regression**. The open worry: the tool has only ever been run Before-vs-identical-Before (correctly showing "nothing changed"); it has not yet been shown to *detect* a deliberately removed rule. Distinct from a **false positive** (noise shown as a regression) and the **noise floor** (the false-positive rate measured by a Before-vs-Before calibration run).
