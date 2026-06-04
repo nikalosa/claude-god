@@ -30,9 +30,9 @@ type PreferenceResult struct {
 
 // GradeProbe grades one probe's before/after run records. It always returns an
 // AggregatedOutcome (median Numbers, plus per-rule majority vote for rule-based
-// probes). For an open-ended probe it additionally compares a representative
-// before/after answer (sample 0) via the judge and returns a PreferenceResult;
-// otherwise the preference is nil.
+// probes). For a comparative probe (open_ended or plan) it additionally
+// compares a representative before/after answer (sample 0) via the judge and
+// returns a PreferenceResult; otherwise the preference is nil.
 func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.RunRecord, j judge.Judge) (aggregator.AggregatedOutcome, *PreferenceResult, error) {
 	beforeRuns, err := gradeRuns(ctx, probe, before, j)
 	if err != nil {
@@ -48,11 +48,11 @@ func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.Ru
 		After:   aggregator.EnvOutcome{Runs: afterRuns},
 	})
 
-	if !probe.OpenEnded() || len(before) == 0 || len(after) == 0 {
+	if !probe.Comparative() || len(before) == 0 || len(after) == 0 {
 		return agg, nil, nil
 	}
 	if j == nil {
-		return agg, nil, fmt.Errorf("open-ended probe %s needs a judge", probe.ID)
+		return agg, nil, fmt.Errorf("comparative probe %s needs a judge", probe.ID)
 	}
 	pref, err := j.Prefer(ctx, probe.Prompt, before[0].FinalText, after[0].FinalText)
 	if err != nil {
@@ -72,14 +72,14 @@ func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.Ru
 	}, nil
 }
 
-// gradeRuns grades each run of one environment. Open-ended probes carry no
-// rules, so they produce empty results but still flow through aggregation for
-// their Numbers.
+// gradeRuns grades each run of one environment. Comparative probes (open_ended,
+// plan) carry no rules, so they produce empty results but still flow through
+// aggregation for their Numbers.
 func gradeRuns(ctx context.Context, probe dsl.Probe, records []*parser.RunRecord, j judge.Judge) ([]aggregator.Run, error) {
 	runs := make([]aggregator.Run, 0, len(records))
 	for _, rec := range records {
 		var results []dsl.RuleResult
-		if !probe.OpenEnded() {
+		if !probe.Comparative() {
 			r, err := dsl.Grade(ctx, probe.Prompt, rec, probe.Rules, j)
 			if err != nil {
 				return nil, err

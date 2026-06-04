@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
+	"github.com/nikalosa/claude-god/internal/report"
 )
 
 // fakeRun is a deterministic runFunc: its record is a pure function of
@@ -193,4 +195,31 @@ func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
 		t.Errorf("want Numbers kept for every probe, got %d/%d", len(aggs), len(probes))
 	}
 	_ = verdicts
+}
+
+// TestRunBenchmark_PlanProbeEndToEnd walks the whole plan path with a stub
+// judge: a kind: plan probe routes through the comparative path, produces a
+// report-only preference (no rule verdicts), and renders in the report.
+func TestRunBenchmark_PlanProbeEndToEnd(t *testing.T) {
+	probe := dsl.Probe{ID: "rollout", Prompt: "Plan the migration.", Kind: dsl.Plan}
+	j := judge.StubJudge{Pref: judge.Preference{
+		Outcome: judge.AfterBetter, Concise: judge.AfterBetter,
+		Exhaustive: judge.Tie, Direct: judge.AfterBetter, Reasoning: "after has clearer steps",
+	}}
+
+	verdicts, prefs, deltas, err := runBenchmark(context.Background(), []dsl.Probe{probe}, "before", "after", 1, 1, fakeRun, j)
+	if err != nil {
+		t.Fatalf("runBenchmark: %v", err)
+	}
+	if len(verdicts) != 0 {
+		t.Errorf("plan probe must produce no rule verdicts, got %d", len(verdicts))
+	}
+	if len(prefs) != 1 || prefs[0].ProbeID != "rollout" || prefs[0].Outcome != judge.AfterBetter {
+		t.Fatalf("expected one plan preference (after better), got %+v", prefs)
+	}
+
+	md := report.RenderMarkdown(verdicts, prefs, deltas, 1)
+	if !strings.Contains(md, "What reads better") || !strings.Contains(md, "rollout") {
+		t.Errorf("report should render the plan preference, got:\n%s", md)
+	}
 }

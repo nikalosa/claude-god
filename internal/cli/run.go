@@ -84,8 +84,9 @@ var runCmd = &cobra.Command{
 	},
 }
 
-// parseLevels splits the --level CSV into a tier set, accepting l1/l2 and
-// rejecting the not-yet-supported l3/l4 and unknown tokens.
+// parseLevels splits the --level CSV into the enabled set. --level only toggles
+// the Judge (l2) — it selects no probes, every probe in the corpus runs. l3/l4
+// are retired tiers (see CONTEXT.md).
 func parseLevels(s string) (map[string]bool, error) {
 	set := map[string]bool{}
 	for _, tok := range strings.Split(s, ",") {
@@ -97,7 +98,7 @@ func parseLevels(s string) (map[string]bool, error) {
 		case "l1", "l2":
 			set[tok] = true
 		case "l3", "l4":
-			return nil, fmt.Errorf("tier %q is not supported in v1 (only l1, l2)", tok)
+			return nil, fmt.Errorf("tier %q is retired; --level only toggles the judge (l1, l2)", tok)
 		default:
 			return nil, fmt.Errorf("unknown tier %q (want l1 or l2)", tok)
 		}
@@ -120,16 +121,29 @@ func validateSamples(n int) error {
 	return nil
 }
 
-// judgeFor builds a Judge iff the corpus has judge-backed rules, requiring l2 to
-// be enabled in that case so a judge check never runs without a judge.
+// judgeFor builds a Judge iff the corpus needs one (judge-backed rules or
+// comparative probes — open-ended and plan), requiring l2 in that case so a
+// judge check or preference never runs without a judge.
 func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 	if !dsl.NeedsJudge(probes) {
 		return nil, nil
 	}
 	if !levels["l2"] {
-		return nil, fmt.Errorf("corpus has judge_rubric rules (L2); add l2 to --level (got %q)", flagLevel)
+		return nil, fmt.Errorf("corpus needs a judge; add l2 to --level (got %q)", flagLevel)
 	}
 	return judge.New(judge.NewClaudeBackend()), nil
+}
+
+// taskPrompt wraps a plan probe so the run is asked for a step-by-step plan
+// (Mode = Plan). Runs are already read-only (ADR-0006), so this only makes the
+// plan-not-execute intent explicit; other kinds pass through unchanged. The
+// wrap is applied to the run prompt only — the judge still compares against the
+// probe's original question.
+func taskPrompt(probe dsl.Probe) string {
+	if probe.Kind == dsl.Plan {
+		return "Produce a step-by-step plan to accomplish the following. Do not execute it.\n\n" + probe.Prompt
+	}
+	return probe.Prompt
 }
 
 // runBenchmark samples every probe on the before and after branches in a
@@ -152,25 +166,26 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 		afterRecs[pi] = make([]*parser.RunRecord, samples)
 	}
 
-	// Dispatch open-ended probes first (LPT): they run ~5x longer than
-	// rule-based, so starting the long poles at t=0 and backfilling with cheap
-	// probes flattens the tail. Results store by original probe index, so
-	// dispatch order never changes the graded output.
+	// Dispatch comparative probes first (LPT): open-ended and plan probes run
+	// ~5x longer than rule-based, so starting the long poles at t=0 and
+	// backfilling with cheap probes flattens the tail. Results store by original
+	// probe index, so dispatch order never changes the graded output.
 	order := make([]int, len(probes))
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool {
-		return probes[order[a]].OpenEnded() && !probes[order[b]].OpenEnded()
+		return probes[order[a]].Comparative() && !probes[order[b]].Comparative()
 	})
 
 	var tasks []task
 	for _, pi := range order {
 		probe := probes[pi]
+		prompt := taskPrompt(probe)
 		for si := 0; si < samples; si++ {
 			tasks = append(tasks,
-				task{before, probe.Prompt, fmt.Sprintf("probe %s before sample %d", probe.ID, si+1), "before", &beforeRecs[pi][si]},
-				task{after, probe.Prompt, fmt.Sprintf("probe %s after sample %d", probe.ID, si+1), "after", &afterRecs[pi][si]},
+				task{before, prompt, fmt.Sprintf("probe %s before sample %d", probe.ID, si+1), "before", &beforeRecs[pi][si]},
+				task{after, prompt, fmt.Sprintf("probe %s after sample %d", probe.ID, si+1), "after", &afterRecs[pi][si]},
 			)
 		}
 	}
@@ -306,7 +321,7 @@ func validateConcurrency(n int) error {
 
 func init() {
 	f := runCmd.Flags()
-	f.StringVar(&flagLevel, "level", "l1", "comma-separated tiers to run (l1, l2)")
+	f.StringVar(&flagLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
 	f.StringVar(&flagTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagBefore, "before", "validator/before", "branch holding the pre-restructure baseline")

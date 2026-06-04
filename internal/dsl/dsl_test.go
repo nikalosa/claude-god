@@ -409,6 +409,15 @@ func TestLoadCorpus_KindValidation(t *testing.T) {
 		"rule_based with no rules": `probes:
   - id: p
     prompt: "x"`,
+		"plan with rules": `probes:
+  - id: p
+    kind: plan
+    prompt: "x"
+    rules:
+      - id: r
+        severity: high
+        checks:
+          - text_matches: "x"`,
 		"bad kind": `probes:
   - id: p
     kind: bogus
@@ -448,6 +457,30 @@ func TestLoadCorpus_OpenEnded(t *testing.T) {
 	}
 	if !probes[0].OpenEnded() || len(probes[0].Rules) != 0 {
 		t.Errorf("expected an open-ended, rule-less probe: %+v", probes[0])
+	}
+}
+
+func TestLoadCorpus_Plan(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	yaml := `probes:
+  - id: rate_limit_plan
+    kind: plan
+    prompt: "Plan how to add rate limiting to the API."
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	probes, err := LoadCorpus(path)
+	if err != nil {
+		t.Fatalf("LoadCorpus: %v", err)
+	}
+	p := probes[0]
+	if p.Kind != Plan || !p.Comparative() || p.OpenEnded() || len(p.Rules) != 0 {
+		t.Errorf("expected a comparative, rule-less plan probe: %+v", p)
+	}
+	if !NeedsJudge(probes) {
+		t.Error("plan corpus should need a judge (comparative preference)")
 	}
 }
 
