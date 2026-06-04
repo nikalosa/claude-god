@@ -30,6 +30,7 @@ type ProbeKind string
 const (
 	RuleBased ProbeKind = "rule_based"
 	OpenEnded ProbeKind = "open_ended"
+	Plan      ProbeKind = "plan"
 )
 
 type Probe struct {
@@ -39,8 +40,13 @@ type Probe struct {
 	Rules  []Rule
 }
 
-// OpenEnded reports whether the probe is graded by comparative preference.
+// OpenEnded reports whether the probe's kind is exactly open_ended.
 func (p Probe) OpenEnded() bool { return p.Kind == OpenEnded }
+
+// Comparative reports whether the probe is graded by comparative preference.
+// open_ended and plan probes both reuse the preference path (no Rules, judged
+// head-to-head); the only difference is plan asks for a step-by-step plan.
+func (p Probe) Comparative() bool { return p.Kind == OpenEnded || p.Kind == Plan }
 
 type Rule struct {
 	ID       string
@@ -134,7 +140,7 @@ func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Ru
 // caller builds a Judge (and requires --level l2) exactly when needed.
 func NeedsJudge(probes []Probe) bool {
 	for _, p := range probes {
-		if p.OpenEnded() {
+		if p.Comparative() {
 			return true
 		}
 		for _, r := range p.Rules {
@@ -215,6 +221,10 @@ func LoadCorpus(path string) ([]Probe, error) {
 			if len(p.Rules) > 0 {
 				return nil, fmt.Errorf("probe %s: open_ended probe must have no rules", rp.ID)
 			}
+		case Plan:
+			if len(p.Rules) > 0 {
+				return nil, fmt.Errorf("probe %s: plan probe must have no rules", rp.ID)
+			}
 		case RuleBased:
 			if len(p.Rules) == 0 {
 				return nil, fmt.Errorf("probe %s: rule_based probe needs >=1 rule (use kind: open_ended for a preference probe)", rp.ID)
@@ -231,8 +241,10 @@ func parseKind(s string) (ProbeKind, error) {
 		return RuleBased, nil
 	case string(OpenEnded):
 		return OpenEnded, nil
+	case string(Plan):
+		return Plan, nil
 	default:
-		return "", fmt.Errorf("invalid kind %q (want rule_based|open_ended)", s)
+		return "", fmt.Errorf("invalid kind %q (want rule_based|open_ended|plan)", s)
 	}
 }
 
