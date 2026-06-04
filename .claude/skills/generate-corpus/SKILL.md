@@ -1,62 +1,74 @@
 ---
 name: generate-corpus
-description: Drafts a claude-validator Corpus — probes and their checks — from a Target's hand-selected Before-branch context (CLAUDE.md, Claude rules, docs, pasted text), routing each rule-based candidate through the Closed-book check into admit, demote-to-open-ended, or drop-as-weak, then freezing the reviewed set onto Before. Use when authoring or extending a validator corpus, generating probes from an Environment, or when the user mentions corpus generation, the Generator, the Closed-book check, or a Steering config.
+description: Drafts a claude-validator corpus — probes and how they're graded — from a project's Before-branch context, in three independent streams run in parallel. Rule-based probes collect the important, easily-dropped rules from hand-selected docs (one subagent per doc, that doc's text only — no codebase, no general-knowledge questions); open-ended system/design probes and plan probes are drafted from the whole project. You draft; the dev reviews and finalizes. Use when authoring or extending a validator corpus, generating probes from a project's docs, or when the user mentions corpus generation or a steering config.
 ---
 
 # Generate a validator corpus
 
-Draft a frozen **Corpus** for `claude-validator` from a **Target**'s hand-selected
-**Before** context. You draft; the dev reviews and freezes — never an unreviewed author.
+Draft a frozen **corpus** for `claude-validator` from a project's **Before** context.
+You draft; the dev reviews, edits, and finalizes — never an unreviewed author.
 
-The decisions are in `docs/adr/0004-corpus-generation-isolated-from-before-drafting.md`,
-the glossary in `CONTEXT.md`, and the backend in `docs/adr/0003-judge-backend-claude-p.md`.
-Read them. **Do not restate them** — reference them. Use the glossary's terms exactly.
+The corpus has three kinds of probe, generated as three independent streams. There is no
+post-generation check: the rule-based draft prompt is written to skip general-knowledge
+questions in the first place, and any rule-based probe Claude can still answer *without* its
+doc is dropped by the dev at review.
 
-## Guardrails (enforce — don't re-derive)
+## The three streams (generate independently, in parallel)
 
-- **Generate from Before, freeze.** Assemble source with `git show <before>:<path>`. Never
-  the After/working tree — a dropped **Rule** must stay probeable.
-- **Isolation tracks probe KIND, not tier.** Rule-based = doc-borne (*proven*, below).
-  Open-ended = codebase-aware, report-only (can't false-pass).
-- **Closed-book check is the router and the guarantee.** No probe is frozen rule-based
-  until its answer is proven doc-borne. See [closed-book-check.md](references/closed-book-check.md).
-- **Backend = `claude -p --output-format json`** in a throwaway dir (ADR-0003). Not the
-  Anthropic SDK, not the Workflow tool.
-- **Severity proposed → dev-confirmed.** `critical` sets the gate bit — never freeze one
-  the dev hasn't confirmed.
-- **L4 out of scope.** L1 + doc-borne L2 + architectural L2 + L3 prompts only.
+| Stream | Probe kind | Context it sees | Emits |
+|---|---|---|---|
+| 1 | **Rule-based** | **selected docs only** — one subagent per doc, that doc's text and nothing else | `{question, expected answer, check kind, proposed severity}` |
+| 2 | **Open-ended** | **whole project** (Before worktree), one subagent | prompt-only system / design questions |
+| 3 | **Plan** | **whole project** (Before worktree), one subagent | prompt-only task prompts (step-by-step plan) |
+
+## Guardrails (enforce)
+
+- **Generate from Before, freeze.** Assemble doc source with `git show <before>:<path>`.
+  Never the After / working tree.
+- **Context tracks stream.** Rule-based subagents see **only their one doc — no code, no
+  other docs**. Open-ended and Plan subagents see the **whole project**.
+- **One subagent per doc** for the rule-based stream — each collects that doc's rules. Keeps
+  generation focused, parallel, and free of cross-doc bleed.
+- **Backend = `claude -p --output-format json`** in a throwaway empty dir (rule-based) or a
+  Before worktree (open-ended / plan). Read the assistant text from the JSON envelope's
+  `result` field. Use the `claude -p` CLI for every generation call — not a direct API SDK,
+  not an agent-orchestration harness.
+- **Severity proposed → dev-confirmed.** Severity (`critical | high | medium`) is the dev's
+  reading priority, not a gate — the validator never gates. Confirmed by the dev so the
+  report sorts right.
+- **Implementation probes are out of scope.** Probes are **Ask** or **Plan** mode only.
 
 ## Workflow
 
 1. **Inputs.** Get the Before ref (e.g. `validator/before` from `claude-validator snapshot`)
-   and the **Steering config** ([steering-config.md](references/steering-config.md)). If none
+   and the **steering config** ([steering-config.md](references/steering-config.md)). If none
    exists, draft one with the dev: source globs + emphasis/skip notes + proposed severities.
-2. **Assemble.** Resolve the Steering `sources` globs on Before via `git show <ref>:<path>`;
-   concatenate into the selected source text. This curated set is the only doc grounding.
-3. **Draft.**
-   - *Rule-based:* `claude -p` in an **empty** dir with the selected source text in the
-     prompt → candidates `{question, expected answer, check kind, proposed severity}`. May
-     additionally read a Before worktree when a rubric fact must cite real code (schema-grounded);
-     admission still hinges on step 4. Prompt: [closed-book-check.md](references/closed-book-check.md).
-   - *Open-ended:* `claude -p` in a **Before worktree** (codebase-aware) → prompt-only probes.
-4. **Route — Closed-book check.** Per rule-based candidate, run the two-pass check →
-   **admit** rule-based / **demote** to open-ended / **drop** as **Weak probe**.
-   [closed-book-check.md](references/closed-book-check.md).
-5. **Review + freeze.** Show the dev the probes grouped by route, severities flagged for
-   confirmation. Edit conversationally. On confirm, write `.validator/corpus/<name>.yaml`
-   (mirror the shape below) and the Steering config to `.validator/steering.yaml`, and commit
-   both onto Before — only when the dev says so. Regeneration **appends** new probes; never
-   rewrites the frozen set.
+2. **Generate — three independent streams** (run them in parallel; prompts in
+   [draft-prompts.md](references/draft-prompts.md)):
+   - *Rule-based:* resolve the steering `sources` globs on Before; for **each doc**, run
+     `claude -p` in an **empty** dir with **only that doc's text** in the prompt → rule-based
+     candidates.
+   - *Open-ended:* one `claude -p` in a **Before worktree** (codebase-aware) → prompt-only
+     system / design probes.
+   - *Plan:* one `claude -p` in a **Before worktree** → prompt-only task prompts. (The
+     validator can't run plan probes yet; draft them now if the dev asks.)
+3. **Review + finalize.** Show the dev all three streams grouped, severities flagged for
+   confirmation. The dev edits conversationally and drops any rule-based probe answerable
+   *without* its doc. On confirm, write `.validator/corpus/<name>.yaml` and the steering
+   config to `.validator/steering.yaml`, and commit both onto Before — only when the dev says
+   so. Regeneration **appends** new probes; never rewrites the frozen set.
 
 ## Output shape
 
-Mirror existing corpora exactly — read them, don't reinvent:
+Match the corpus YAML the validator already loads — read an existing corpus under
+`.validator/corpus/` (or a shipped example) before writing, don't reinvent:
 
-- Rule-based regex / rubric: `.validator/corpus/self.yaml`
-- Rubric + `kind: open_ended`: `examples/corpus/l2-smoke.yaml`
+- `text_matches` — hard tokens (regex over the answer).
+- `judge_rubric` (`facts` + `pass_score`) — prose graded by the judge against listed facts.
+- `kind: open_ended` — prompt only, no rules; preference-graded.
 
-`text_matches` for hard tokens; `judge_rubric` (`facts` + `pass_score`) for prose;
-`kind: open_ended` (prompt only, no rules) for preference probes.
+Plan probes are drafted prompt-only like open-ended; their corpus kind is wired once the
+validator can run them.
 
 ## Validate
 
@@ -67,5 +79,5 @@ claude-validator calibrate --target <repo> --corpus .validator/corpus/<name>.yam
   --branch <before> --no-memory-snapshot
 ```
 
-Before-vs-Before; tighten or drop any flaky **Check** before trusting a real Before-vs-After
+Before-vs-Before; tighten or drop any flaky check before trusting a real Before-vs-After
 run. A malformed corpus errors at load, before any spend.
