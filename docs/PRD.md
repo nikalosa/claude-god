@@ -1,6 +1,6 @@
 # claude-validator — PRD
 
-**Status:** Pre-v1. L1 (rule-based recall) shipped and dogfooded against the validator's own CLAUDE.md; L2 (open-ended) and L3 (plan) in progress. Real execution (L4) deferred.
+**Status:** Pre-v1. Rule-based recall shipped and dogfooded against the validator's own CLAUDE.md; open-ended and plan probes (preference-graded) shipped. Real execution deferred.
 Glossary: [CONTEXT.md](../CONTEXT.md). Decisions: [docs/adr/](adr/). Work tracked in GitHub issues.
 
 > This PRD is the long-form of the [README](../README.md). Where they differ, the README and the ADRs win — this document is kept in sync with them, not the reverse.
@@ -42,13 +42,13 @@ A **Probe** is one prompt plus how its response is graded. Three kinds, built in
 2. **Open-ended probe** — system/design questions, generated with the whole codebase in view. *"How do the betting and ledger services communicate?"* No single right answer; the two environments' answers are compared head-to-head by the Judge, alongside Numbers. Report-only — it cannot produce a false "nothing compromised."
 3. **Plan probe** — Claude produces a step-by-step plan, no execution. Before's plan and After's plan are compared (tighter? steps lost or gained?), alongside Numbers.
 
-**Tier** (L1–L4) is the orthogonal difficulty axis kept by the `--level` flag: L1 recall, L2 design Q&A, L3 plan-only, L4 full implementation. L4 — running tasks for real — is **deferred**; the proxy above is why the tool is useful without it.
+**Real execution** — Claude performing the task rather than answering or planning it — is **deferred**; the answer/plan proxy above is why the tool is useful without it. The `--level` flag encodes no difficulty tier (L1–L4 retired): every probe in the corpus always runs, and `--level` only builds the Judge when the corpus needs one (`l2` for open-ended, plan, or `judge_rubric` probes).
 
 ## How a run works
 
 - **Before / After** are git branches in the Target. Each **Run** spawns a fresh `git worktree` off the right branch, runs Claude headlessly inside, captures the stream, and cleans up (`git worktree remove --force`). Reproducible months later.
 - **Project memory** (`~/.claude/projects/<slug>/memory/`) is snapshotted into the run by default so user-level memory drift doesn't pollute the A/B; `--no-memory-snapshot` opts out.
-- **Headless and read-only.** `claude -p "<prompt>" --output-format stream-json --permission-mode bypassPermissions --disallowedTools Agent Bash Edit Write WebFetch --disable-slash-commands`. The graded signal is the assistant **text**; the model keeps `Read/Grep/Glob` to inspect the Environment but cannot mutate the tree, shell out, hit the network, or fire a skill. Skills aren't part of the Environment, so disabling them removes noise, not signal ([ADR-0006](adr/0006-headless-runs-read-only.md)). Diff capture still runs but records nothing until L4 lands.
+- **Headless and read-only.** `claude -p "<prompt>" --output-format stream-json --permission-mode bypassPermissions --disallowedTools Agent Bash Edit Write WebFetch --disable-slash-commands`. The graded signal is the assistant **text**; the model keeps `Read/Grep/Glob` to inspect the Environment but cannot mutate the tree, shell out, hit the network, or fire a skill. Skills aren't part of the Environment, so disabling them removes noise, not signal ([ADR-0006](adr/0006-headless-runs-read-only.md)). Diff capture still runs but records nothing until real execution lands.
 - **No preamble** is injected — whatever Claude needs comes from the Target's CLAUDE.md, rules, and memory, which is exactly what's under test.
 - **N=3** samples per environment: median for Numbers, majority vote for rule outcomes, adaptive expansion to N=5 when a `critical` rule's samples disagree. Same-prompt repeats — the variance *is* the noise floor.
 - **Bounded parallelism.** Runs are independent, so they execute in one `errgroup` pool (`--concurrency`, default 8). Cost and tokens stay **exact** (the same work bills identically however it's scheduled); **Duration degrades to advisory** and the report marks it not-comparable unless `--concurrency 1` ([ADR-0005](adr/0005-parallel-benchmark-runs.md)).
@@ -88,11 +88,11 @@ harness, parser, dsl, and aggregator are testable with no live Claude — replay
 
 ## Testing
 
-Tests verify **observable behavior** given fixed input, never implementation details — the validator's credibility rests on determinism, so its own tests are deterministic. Parser: golden-file tests over recorded stream-json fixtures (flat runs, sub-agent recursion, errors, mid-stream `usage`). DSL: pure unit tests over every primitive plus realistic compositions. Aggregator: synthetic run records — all agree, critical-disagree → expand, non-critical-disagree → flaky, median odd vs even, majority-vote ties. Report: snapshot tests. Harness: one integration smoke against a tiny committed example repo, gated behind an env var. Plus the self-test: dogfood L1 against the validator's own lean CLAUDE.md — all checks should pass.
+Tests verify **observable behavior** given fixed input, never implementation details — the validator's credibility rests on determinism, so its own tests are deterministic. Parser: golden-file tests over recorded stream-json fixtures (flat runs, sub-agent recursion, errors, mid-stream `usage`). DSL: pure unit tests over every primitive plus realistic compositions. Aggregator: synthetic run records — all agree, critical-disagree → expand, non-critical-disagree → flaky, median odd vs even, majority-vote ties. Report: snapshot tests. Harness: one integration smoke against a tiny committed example repo, gated behind an env var. Plus the self-test: dogfood the rule-based stream against the validator's own lean CLAUDE.md — all checks should pass.
 
 ## Out of scope (v1)
 
-- **Real execution during runs (L4).** Tasks are designed never to need live docker/postgres/network; the grader checks intent, not outcome. The read-only profile is scoped to the answer/plan tiers; L4 will need a write-enabled profile when it lands.
+- **Real execution during runs.** Tasks are designed never to need live docker/postgres/network; the grader checks intent, not outcome. The read-only profile is scoped to the answer/plan modes; real execution will need a write-enabled profile when it lands.
 - **Soft style rules in the corpus** (terseness, no over-explanation). Real wins, but noisier to grade and the system prompt already biases terse — defer until grading is proven stable.
 - **Unattended corpus auto-generation.** The Generator is a *drafting* aid with a human in the loop, deliberately — an LLM reading a bloated Environment is blind to the same buried rules the bloat hides.
 - **Automated restructuring driven by results.** Future skill, once the validator is trusted.
