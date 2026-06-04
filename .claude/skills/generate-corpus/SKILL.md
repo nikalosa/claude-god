@@ -50,8 +50,8 @@ doc is dropped by the dev at review.
      candidates.
    - *Open-ended:* one `claude -p` in a **Before worktree** (codebase-aware) → prompt-only
      system / design probes.
-   - *Plan:* one `claude -p` in a **Before worktree** → prompt-only task prompts. (The
-     validator can't run plan probes yet; draft them now if the dev asks.)
+   - *Plan:* one `claude -p` in a **Before worktree** → prompt-only task prompts (the run
+     is later asked for a step-by-step plan, not execution).
 3. **Review + finalize.** Show the dev all three streams grouped, severities flagged for
    confirmation. The dev edits conversationally and drops any rule-based probe answerable
    *without* its doc. On confirm, write `.validator/corpus/<name>.yaml` and the steering
@@ -66,9 +66,9 @@ Match the corpus YAML the validator already loads — read an existing corpus un
 - `text_matches` — hard tokens (regex over the answer).
 - `judge_rubric` (`facts` + `pass_score`) — prose graded by the judge against listed facts.
 - `kind: open_ended` — prompt only, no rules; preference-graded.
-
-Plan probes are drafted prompt-only like open-ended; their corpus kind is wired once the
-validator can run them.
+- `kind: plan` — prompt only, no rules; preference-graded, but the run is asked for a
+  step-by-step plan. Comparative probes (open_ended, plan) need a judge — run with
+  `--level l2` (see `examples/corpus/plan-smoke.yaml`).
 
 ## Validate
 
@@ -79,8 +79,8 @@ claude-validator calibrate --target <repo> --corpus .validator/corpus/<name>.yam
   --branch <before> --no-memory-snapshot
 ```
 
-Add `--level l2` when the corpus has open-ended or `judge_rubric` probes — calibrate must
-build a **Judge** for them, even though only rule-based probes have a noise floor.
+Add `--level l2` when the corpus has open-ended, plan, or `judge_rubric` probes — calibrate
+must build a **Judge** for them, even though only rule-based probes have a noise floor.
 
 Before-vs-Before; tighten or drop any flaky check before trusting a real Before-vs-After
 run. A malformed corpus errors at load, before any spend.
