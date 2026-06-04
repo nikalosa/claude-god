@@ -1,0 +1,12 @@
+# Example L3 corpus: a plan probe (Mode = Plan). Claude is asked to produce a
+# step-by-step plan, not to execute it; runs stay read-only (ADR-0006). The
+# Before-plan and After-plan are compared by the same Preference comparison as
+# open-ended probes, alongside Numbers — report-only, never a gate. Requires
+# --level l3 (a Judge is built for the preference):
+#
+#   claude-validator run --level l3 --corpus examples/corpus/l3-smoke.yaml \
+#     --target <repo> --before <branch> --after <branch>
+probes:
+  - id: add_check_kind_plan
+    kind: plan
+    prompt: "Plan how to add a new check kind to claude-validator's DSL end to end — parsing, validation, the runner, and tests."

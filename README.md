@@ -73,6 +73,9 @@ Requires **Go 1.24+** (earlier internal linkers omit `LC_UUID`, which recent mac
 go build ./...
 go run ./cmd/claude-validator --help
 go run ./cmd/claude-validator run --level l1 --target . --corpus <dir>
+# Plan probes (Mode = Plan): a step-by-step plan, graded by preference like open-ended.
+go run ./cmd/claude-validator run --level l3 --target . \
+  --corpus examples/corpus/l3-smoke.yaml --before <before> --after <after>
 ```
 
 ## Layout
@@ -84,7 +87,7 @@ internal/
   harness/      isolated per-probe run: worktree, memory swap, claude -p, diff capture  (#4)
   parser/       stream-json JSONL -> RunRecord; shape notes + golden fixtures in testdata  (#3)
   dsl/          YAML predicate DSL -> per-rule PASS/FAIL  (#5+)
-  judge/        Anthropic-API grading escape hatch (L2 rubric, L3 plan diff)  (later)
+  judge/        Anthropic-API grading escape hatch (L2 rubric, L3 plan preference)  (later)
   aggregator/   N=3 runs -> median stats + majority-vote outcomes  (#6)
   report/       markdown (default) + JSON rendering  (#5+)
 ```

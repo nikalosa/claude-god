@@ -73,7 +73,7 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 
 func init() {
 	f := calibrateCmd.Flags()
-	f.StringVar(&flagCalLevel, "level", "l1", "comma-separated tiers to run (l1, l2)")
+	f.StringVar(&flagCalLevel, "level", "l1", "comma-separated tiers to run (l1, l2, l3)")
 	f.StringVar(&flagCalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCalCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagCalBranch, "branch", "main", "the Environment branch to calibrate (run Before-vs-Before)")

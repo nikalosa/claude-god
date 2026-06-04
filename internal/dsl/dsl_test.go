@@ -395,6 +395,30 @@ func TestLoadCorpus_L2Example(t *testing.T) {
 	}
 }
 
+// TestLoadCorpus_L3Example loads the shipped L3 example and confirms it carries
+// a plan probe, so NeedsJudge requires a judge (run via --level l3).
+func TestLoadCorpus_L3Example(t *testing.T) {
+	probes, err := LoadCorpus("../../examples/corpus/l3-smoke.yaml")
+	if err != nil {
+		t.Fatalf("LoadCorpus: %v", err)
+	}
+	if !NeedsJudge(probes) {
+		t.Error("l3 example should need a judge (comparative preference)")
+	}
+	var plan int
+	for _, p := range probes {
+		if p.Kind == Plan {
+			plan++
+		}
+		if len(p.Rules) != 0 {
+			t.Errorf("plan probe %s must have no rules: %+v", p.ID, p.Rules)
+		}
+	}
+	if plan != 1 {
+		t.Errorf("expected exactly 1 plan probe in the L3 example, got %d", plan)
+	}
+}
+
 func TestLoadCorpus_KindValidation(t *testing.T) {
 	cases := map[string]string{
 		"open_ended with rules": `probes:

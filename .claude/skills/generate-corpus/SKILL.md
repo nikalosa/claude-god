@@ -50,8 +50,8 @@ doc is dropped by the dev at review.
      candidates.
    - *Open-ended:* one `claude -p` in a **Before worktree** (codebase-aware) → prompt-only
      system / design probes.
-   - *Plan:* one `claude -p` in a **Before worktree** → prompt-only task prompts. (The
-     validator can't run plan probes yet; draft them now if the dev asks.)
+   - *Plan:* one `claude -p` in a **Before worktree** → prompt-only task prompts (the run
+     is later asked for a step-by-step plan, not execution).
 3. **Review + finalize.** Show the dev all three streams grouped, severities flagged for
    confirmation. The dev edits conversationally and drops any rule-based probe answerable
    *without* its doc. On confirm, write `.validator/corpus/<name>.yaml` and the steering
@@ -66,9 +66,9 @@ Match the corpus YAML the validator already loads — read an existing corpus un
 - `text_matches` — hard tokens (regex over the answer).
 - `judge_rubric` (`facts` + `pass_score`) — prose graded by the judge against listed facts.
 - `kind: open_ended` — prompt only, no rules; preference-graded.
-
-Plan probes are drafted prompt-only like open-ended; their corpus kind is wired once the
-validator can run them.
+- `kind: plan` — prompt only, no rules; preference-graded, but the run is asked for a
+  step-by-step plan. Comparative probes need a judge: run open_ended with `--level l2`,
+  plan with `--level l3` (see `examples/corpus/l3-smoke.yaml`).
 
 ## Validate
 

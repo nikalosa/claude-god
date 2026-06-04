@@ -1,6 +1,6 @@
 # claude-validator — PRD
 
-**Status:** Pre-v1. L1 (rule-based recall) shipped and dogfooded against the validator's own CLAUDE.md; L2 (open-ended) and L3 (plan) in progress. Real execution (L4) deferred.
+**Status:** Pre-v1. L1 (rule-based recall) shipped and dogfooded against the validator's own CLAUDE.md; L2 (open-ended) and L3 (plan) shipped. Real execution (L4) deferred.
 Glossary: [CONTEXT.md](../CONTEXT.md). Decisions: [docs/adr/](adr/). Work tracked in GitHub issues.
 
 > This PRD is the long-form of the [README](../README.md). Where they differ, the README and the ADRs win — this document is kept in sync with them, not the reverse.
