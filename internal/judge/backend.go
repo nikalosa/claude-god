@@ -28,6 +28,28 @@ type claudeBackend struct{}
 func NewClaudeBackend() Backend { return claudeBackend{} }
 
 func (claudeBackend) Ask(ctx context.Context, prompt string) (string, error) {
+	// Every judge call is a claude -p, as flake-prone as a run, and it lands in
+	// the serial grading phase where a single failure aborts the whole report.
+	// Retry transient failures (mirrors the run pool) so grading survives the
+	// same turbulence the runs already shrug off.
+	const maxAttempts = 3
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var out string
+		if out, err = askOnce(ctx, prompt); err == nil {
+			return out, nil
+		}
+		if ctx.Err() != nil {
+			return "", err
+		}
+		if attempt < maxAttempts {
+			fmt.Fprintf(os.Stderr, "judge retry %d/%d · %v\n", attempt, maxAttempts-1, err)
+		}
+	}
+	return "", err
+}
+
+func askOnce(ctx context.Context, prompt string) (string, error) {
 	dir, err := os.MkdirTemp("", "claude-validator-judge-*")
 	if err != nil {
 		return "", fmt.Errorf("judge: temp dir: %w", err)
