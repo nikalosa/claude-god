@@ -14,7 +14,7 @@ import (
 // Numbers (the thing a restructure is trying to improve) lead, then one folded
 // rule matrix where regression/new-pass is just a Status cell, then the
 // open-ended preference read. Never gates — the dev reads it (ADR-0007).
-func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, d aggregator.Deltas, concurrency int) string {
+func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, aggs []aggregator.AggregatedOutcome, concurrency int) string {
 	var regressions, newPasses int
 	for _, v := range verdicts {
 		switch v.Status {
@@ -32,7 +32,8 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 		len(verdicts), regressions, newPasses, len(prefs))
 	fmt.Fprintln(&b)
 
-	renderDeltas(&b, "Efficiency (Numbers)", d, concurrency)
+	renderDeltas(&b, "Efficiency (Numbers)", aggregator.ComputeDeltas(aggs), concurrency)
+	renderPerProbe(&b, aggs, concurrency)
 	renderRules(&b, verdicts)
 	renderPreferences(&b, prefs)
 
@@ -84,7 +85,7 @@ func statusLabel(s aggregator.Status) string {
 // RenderCalibration renders a Before-vs-Before noise-floor report: the rules
 // that came out flaky on an identical Environment (the false-positive rate a
 // real comparison stands on), plus the Numbers spread. Never gates.
-func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas, concurrency int) string {
+func RenderCalibration(verdicts []aggregator.Verdict, aggs []aggregator.AggregatedOutcome, concurrency int) string {
 	flaky := aggregator.Flaky(verdicts)
 	sort.Slice(flaky, func(i, j int) bool {
 		if flaky[i].ProbeID != flaky[j].ProbeID {
@@ -111,7 +112,8 @@ func RenderCalibration(verdicts []aggregator.Verdict, d aggregator.Deltas, concu
 	}
 	fmt.Fprintln(&b)
 
-	renderDeltas(&b, "Numbers spread (medians, summed across probes)", d, concurrency)
+	renderDeltas(&b, "Numbers spread (medians, summed across probes)", aggregator.ComputeDeltas(aggs), concurrency)
+	renderPerProbe(&b, aggs, concurrency)
 	return b.String()
 }
 
@@ -140,6 +142,60 @@ func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas, concurr
 	if concurrency > 1 {
 		fmt.Fprintf(b, "> ⚠ Duration measured under --concurrency %d; advisory, not comparable. Rerun with --concurrency 1 for authoritative timing. Cost and tokens are exact regardless.\n\n", concurrency)
 	}
+}
+
+// renderPerProbe renders the per-probe Numbers breakdown — one row per probe
+// (before → after, with the percent change) plus a TOTAL row — so the dev can
+// see which probe drives the cost and time, not just the summed delta. Duration
+// is flagged with ⚠ under concurrency, matching the totals table.
+func renderPerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcome, concurrency int) {
+	if len(aggs) == 0 {
+		return
+	}
+	durHdr := "Duration (ms)"
+	if concurrency > 1 {
+		durHdr += " ⚠"
+	}
+	sorted := append([]aggregator.AggregatedOutcome(nil), aggs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ProbeID < sorted[j].ProbeID })
+
+	fmt.Fprintln(b, "## Per-probe Numbers")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "_Before → After (Δ%). Medians across samples._")
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "| Probe | %s | Cost (USD) | Input tok | Output tok | Tool calls |\n", durHdr)
+	fmt.Fprintln(b, "|---|---|---|---|---|---|")
+	for _, a := range sorted {
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", a.ProbeID,
+			cellInt(a.Before.MedianDurationMs, a.After.MedianDurationMs),
+			cellFloat(a.Before.MedianCost, a.After.MedianCost),
+			cellInt(a.Before.MedianInputTok, a.After.MedianInputTok),
+			cellInt(a.Before.MedianOutputTok, a.After.MedianOutputTok),
+			cellInt(a.Before.MedianToolCalls, a.After.MedianToolCalls))
+	}
+	d := aggregator.ComputeDeltas(sorted)
+	fmt.Fprintf(b, "| **TOTAL** | %s | %s | %s | %s | %s |\n",
+		cellInt(d.DurationMsBefore, d.DurationMsAfter),
+		cellFloat(d.CostBefore, d.CostAfter),
+		cellInt(d.InputTokBefore, d.InputTokAfter),
+		cellInt(d.OutputTokBefore, d.OutputTokAfter),
+		cellInt(d.ToolCallsBefore, d.ToolCallsAfter))
+	fmt.Fprintln(b)
+}
+
+func cellFloat(before, after float64) string {
+	return fmt.Sprintf("%.4f → %.4f (%s)", before, after, pct(after-before, before))
+}
+
+func cellInt(before, after int) string {
+	return fmt.Sprintf("%d → %d (%s)", before, after, pct(float64(after-before), float64(before)))
+}
+
+func pct(delta, before float64) string {
+	if before == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%+.1f%%", delta/before*100)
 }
 
 // renderPreferences renders the open-ended "what reads better" section. It is

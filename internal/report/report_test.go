@@ -22,14 +22,12 @@ func TestRenderMarkdown_EfficiencyFirstFoldedMatrix(t *testing.T) {
 		{ProbeID: "p2", RuleID: "still_failing", Severity: dsl.Medium, Before: side(false, 0, 3), After: side(false, 0, 3), Status: aggregator.StableFail},
 	}
 	prefs := []runner.PreferenceResult{{ProbeID: "design", Outcome: judge.AfterBetter}}
-	d := aggregator.Deltas{
-		CostBefore: 0.20, CostAfter: 0.14,
-		InputTokBefore: 2000, InputTokAfter: 1400,
-		OutputTokBefore: 100, OutputTokAfter: 80,
-		DurationMsBefore: 4000, DurationMsAfter: 3000,
-		ToolCallsBefore: 24, ToolCallsAfter: 6,
-	}
-	md := RenderMarkdown(verdicts, prefs, d, 1)
+	aggs := []aggregator.AggregatedOutcome{{
+		ProbeID: "p1",
+		Before:  aggregator.AggregatedEnv{MedianCost: 0.20, MedianInputTok: 2000, MedianOutputTok: 100, MedianDurationMs: 4000, MedianToolCalls: 24},
+		After:   aggregator.AggregatedEnv{MedianCost: 0.14, MedianInputTok: 1400, MedianOutputTok: 80, MedianDurationMs: 3000, MedianToolCalls: 6},
+	}}
+	md := RenderMarkdown(verdicts, prefs, aggs, 1)
 
 	// Efficiency (Numbers) leads, then the rule matrix, then the preference read.
 	idxEff := strings.Index(md, "## Efficiency (Numbers)")
@@ -70,14 +68,14 @@ func TestRenderMarkdown_Disagreement(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "flaky", Severity: dsl.Medium, Before: side(true, 2, 3), After: side(true, 2, 3), Status: aggregator.Stable},
 	}
-	md := RenderMarkdown(verdicts, nil, aggregator.Deltas{}, 1)
+	md := RenderMarkdown(verdicts, nil, nil, 1)
 	if !strings.Contains(md, "disagreement") {
 		t.Errorf("disagreement marker missing: %s", md)
 	}
 }
 
 func TestRenderMarkdown_EmptyBuckets(t *testing.T) {
-	md := RenderMarkdown(nil, nil, aggregator.Deltas{}, 1)
+	md := RenderMarkdown(nil, nil, nil, 1)
 	if !strings.Contains(md, "_none_") {
 		t.Errorf("expected empty bucket markers\n%s", md)
 	}
@@ -89,7 +87,7 @@ func TestRenderMarkdown_PreferenceSection(t *testing.T) {
 		Concise: judge.AfterBetter, Exhaustive: judge.Tie, Direct: judge.AfterBetter,
 		Reasoning: "the after answer is tighter",
 	}}
-	md := RenderMarkdown(nil, prefs, aggregator.Deltas{}, 1)
+	md := RenderMarkdown(nil, prefs, nil, 1)
 
 	const heading = "## What reads better (open-ended)"
 	start := strings.Index(md, heading)
@@ -120,7 +118,7 @@ func TestRenderCalibration(t *testing.T) {
 		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
 		{ProbeID: "p1", RuleID: "flipped", Severity: dsl.Critical, Before: side(true, 3, 3), After: side(false, 0, 3), Status: aggregator.Regression},
 	}
-	md := RenderCalibration(verdicts, aggregator.Deltas{}, 1)
+	md := RenderCalibration(verdicts, nil, 1)
 
 	if !strings.Contains(md, "# claude-validator calibration") {
 		t.Errorf("missing calibration title:\n%s", md)
@@ -143,7 +141,7 @@ func TestRenderCalibration_CleanFloor(t *testing.T) {
 	verdicts := []aggregator.Verdict{
 		{ProbeID: "p1", RuleID: "stable", Severity: dsl.High, Before: side(true, 3, 3), After: side(true, 3, 3), Status: aggregator.Stable},
 	}
-	md := RenderCalibration(verdicts, aggregator.Deltas{}, 1)
+	md := RenderCalibration(verdicts, nil, 1)
 	if !strings.Contains(md, "Noise floor: 0 of 1") {
 		t.Errorf("expected clean floor:\n%s", md)
 	}
@@ -153,7 +151,7 @@ func TestRenderCalibration_CleanFloor(t *testing.T) {
 }
 
 func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
-	md := RenderMarkdown(nil, nil, aggregator.Deltas{}, 1)
+	md := RenderMarkdown(nil, nil, nil, 1)
 	if strings.Contains(md, "What reads better") {
 		t.Errorf("preference section should be omitted when there are no open-ended probes:\n%s", md)
 	}
@@ -163,15 +161,47 @@ func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
 // under concurrency and left clean at --concurrency 1 — the report must never
 // silently present an inflated timing number as comparable.
 func TestRenderDeltas_DurationAdvisory(t *testing.T) {
-	d := aggregator.Deltas{DurationMsBefore: 4000, DurationMsAfter: 3000}
+	aggs := []aggregator.AggregatedOutcome{{
+		ProbeID: "p1",
+		Before:  aggregator.AggregatedEnv{MedianDurationMs: 4000},
+		After:   aggregator.AggregatedEnv{MedianDurationMs: 3000},
+	}}
 
-	warned := RenderMarkdown(nil, nil, d, 8)
+	warned := RenderMarkdown(nil, nil, aggs, 8)
 	if !strings.Contains(warned, "advisory") || !strings.Contains(warned, "--concurrency 8") {
 		t.Errorf("expected a Duration advisory under concurrency:\n%s", warned)
 	}
 
-	clean := RenderMarkdown(nil, nil, d, 1)
+	clean := RenderMarkdown(nil, nil, aggs, 1)
 	if strings.Contains(clean, "advisory") {
 		t.Errorf("Duration must not be flagged advisory at --concurrency 1:\n%s", clean)
+	}
+}
+
+// TestRenderPerProbe checks the per-probe Numbers table: one row per probe with
+// before → after (Δ%) and a summed TOTAL row, so the dev sees which probe drives
+// cost and time.
+func TestRenderPerProbe(t *testing.T) {
+	aggs := []aggregator.AggregatedOutcome{
+		{ProbeID: "cheap_rule", Before: aggregator.AggregatedEnv{MedianCost: 0.10, MedianDurationMs: 20000, MedianToolCalls: 0}, After: aggregator.AggregatedEnv{MedianCost: 0.08, MedianDurationMs: 18000, MedianToolCalls: 0}},
+		{ProbeID: "pricey_design", Before: aggregator.AggregatedEnv{MedianCost: 2.00, MedianDurationMs: 150000, MedianToolCalls: 20}, After: aggregator.AggregatedEnv{MedianCost: 1.40, MedianDurationMs: 170000, MedianToolCalls: 35}},
+	}
+	md := RenderMarkdown(nil, nil, aggs, 1)
+
+	if !strings.Contains(md, "## Per-probe Numbers") {
+		t.Fatalf("missing per-probe section:\n%s", md)
+	}
+	for _, want := range []string{"cheap_rule", "pricey_design", "**TOTAL**"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("per-probe table missing %q:\n%s", want, md)
+		}
+	}
+	// per-probe time direction must be visible: the design probe got slower After.
+	if !strings.Contains(md, "150000 → 170000 (+13.3%)") {
+		t.Errorf("per-probe duration cell not rendered as before → after (Δ%%):\n%s", md)
+	}
+	// TOTAL sums the medians: cost 2.10 → 1.48.
+	if !strings.Contains(md, "2.1000 → 1.4800") {
+		t.Errorf("TOTAL row not summed:\n%s", md)
 	}
 }
