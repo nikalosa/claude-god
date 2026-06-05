@@ -103,7 +103,7 @@ _Avoid_: Metrics (overloaded), stats.
 - **Claude rules** = *only* the `.claude/rules/*` source files — never CLAUDE.md or docs.
 A restructure freely rewrites CLAUDE.md, Claude rules, and docs; the validator checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what changed."
 
-**Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The `--level` CLI flag is just a selector over which probes to run; it carries no conceptual weight.
+**Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The `--level` CLI flag carries no conceptual weight: it selects no probes — every probe in the corpus runs — it only builds the **Judge** when the corpus needs one (pass `l2` for a corpus with open-ended or `judge_rubric` probes).
 
 ## Example dialogue
 

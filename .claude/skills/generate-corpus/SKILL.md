@@ -79,5 +79,8 @@ claude-validator calibrate --target <repo> --corpus .validator/corpus/<name>.yam
   --branch <before> --no-memory-snapshot
 ```
 
+Add `--level l2` when the corpus has open-ended or `judge_rubric` probes — calibrate must
+build a **Judge** for them, even though only rule-based probes have a noise floor.
+
 Before-vs-Before; tighten or drop any flaky check before trusting a real Before-vs-After
 run. A malformed corpus errors at load, before any spend.
