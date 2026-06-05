@@ -75,11 +75,11 @@ var runCmd = &cobra.Command{
 
 		ctx := context.Background()
 		run := harnessRun(target, flagNoMemSnapshot)
-		verdicts, prefs, deltas, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j)
+		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j)
 		if err != nil {
 			return err
 		}
-		fmt.Println(report.RenderMarkdown(verdicts, prefs, deltas, flagConcurrency))
+		fmt.Println(report.RenderMarkdown(verdicts, prefs, aggs, flagConcurrency))
 		return nil
 	},
 }
@@ -138,7 +138,7 @@ func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 // changes nothing about the result; only Duration inflates under concurrency
 // (see ADR-0005). Shared by run and calibrate (calibrate passes the same branch
 // on both sides). run is injected so the pool is testable without claude.
-func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, aggregator.Deltas, error) {
+func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
 
@@ -206,7 +206,7 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, nil, aggregator.Deltas{}, err
+		return nil, nil, nil, err
 	}
 
 	aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
@@ -214,14 +214,14 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 	for pi, probe := range probes {
 		agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs[pi], afterRecs[pi], j)
 		if err != nil {
-			return nil, nil, aggregator.Deltas{}, fmt.Errorf("probe %s: %w", probe.ID, err)
+			return nil, nil, nil, fmt.Errorf("probe %s: %w", probe.ID, err)
 		}
 		aggs = append(aggs, agg)
 		if pref != nil {
 			prefs = append(prefs, *pref)
 		}
 	}
-	return aggregator.Compare(aggs), prefs, aggregator.ComputeDeltas(aggs), nil
+	return aggregator.Compare(aggs), prefs, aggs, nil
 }
 
 // runWithRetry retries a sample on transient failure (an occasional claude -p

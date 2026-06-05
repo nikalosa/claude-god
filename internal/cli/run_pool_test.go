@@ -46,11 +46,11 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()
 
-	v1, p1, d1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, nil)
+	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, nil)
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	v8, p8, d8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, nil)
+	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, nil)
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}
@@ -58,8 +58,8 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	if !reflect.DeepEqual(v1, v8) {
 		t.Errorf("verdicts differ by concurrency:\n c1=%+v\n c8=%+v", v1, v8)
 	}
-	if !reflect.DeepEqual(d1, d8) {
-		t.Errorf("deltas differ by concurrency:\n c1=%+v\n c8=%+v", d1, d8)
+	if !reflect.DeepEqual(a1, a8) {
+		t.Errorf("aggregates differ by concurrency:\n c1=%+v\n c8=%+v", a1, a8)
 	}
 	if !reflect.DeepEqual(p1, p8) {
 		t.Errorf("preferences differ by concurrency")

@@ -91,7 +91,7 @@ func TestDetection_Pure(t *testing.T) {
 	verdicts := aggregator.Compare(aggs)
 	assertDetected(t, verdicts)
 
-	md := report.RenderMarkdown(verdicts, nil, aggregator.ComputeDeltas(aggs), 1)
+	md := report.RenderMarkdown(verdicts, nil, aggs, 1)
 	if !sectionContains(md, "## Rules", "names_mascot") {
 		t.Errorf("dropped rule should appear in the rule matrix:\n%s", md)
 	}
@@ -154,7 +154,7 @@ func TestDetection_Live(t *testing.T) {
 	}
 
 	verdicts := aggregator.Compare(aggs)
-	t.Logf("report:\n%s", report.RenderMarkdown(verdicts, nil, aggregator.ComputeDeltas(aggs), 1))
+	t.Logf("report:\n%s", report.RenderMarkdown(verdicts, nil, aggs, 1))
 	assertDetected(t, verdicts)
 }
 

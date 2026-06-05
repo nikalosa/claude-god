@@ -62,11 +62,11 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 
 		ctx := context.Background()
 		run := harnessRun(target, flagCalNoMem)
-		verdicts, _, deltas, err := runBenchmark(ctx, probes, flagCalBranch, flagCalBranch, flagCalSamples, flagCalConcurrency, run, j)
+		verdicts, _, aggs, err := runBenchmark(ctx, probes, flagCalBranch, flagCalBranch, flagCalSamples, flagCalConcurrency, run, j)
 		if err != nil {
 			return err
 		}
-		fmt.Println(report.RenderCalibration(verdicts, deltas, flagCalConcurrency))
+		fmt.Println(report.RenderCalibration(verdicts, aggs, flagCalConcurrency))
 		return nil
 	},
 }
