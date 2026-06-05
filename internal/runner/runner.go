@@ -8,6 +8,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/dsl"
@@ -55,7 +56,11 @@ func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.Ru
 	}
 	pref, err := j.Prefer(ctx, probe.Prompt, before[0].FinalText, after[0].FinalText)
 	if err != nil {
-		return agg, nil, fmt.Errorf("probe %s preference: %w", probe.ID, err)
+		// Preference is report-only. After the backend's own retries, a still-
+		// failing judge call must not discard a completed (expensive) run: drop
+		// just this probe's preference and keep its Numbers + every other probe.
+		fmt.Fprintf(os.Stderr, "warning: preference unavailable for %s (judge failed after retries): %v\n", probe.ID, err)
+		return agg, nil, nil
 	}
 	return agg, &PreferenceResult{
 		ProbeID:    probe.ID,

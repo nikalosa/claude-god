@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -145,10 +146,26 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 		branch, prompt, label, env string
 		dst                        **parser.RunRecord
 	}
-	var tasks []task
-	for pi, probe := range probes {
+	for pi := range probes {
 		beforeRecs[pi] = make([]*parser.RunRecord, samples)
 		afterRecs[pi] = make([]*parser.RunRecord, samples)
+	}
+
+	// Dispatch open-ended probes first (LPT): they run ~5x longer than
+	// rule-based, so starting the long poles at t=0 and backfilling with cheap
+	// probes flattens the tail. Results store by original probe index, so
+	// dispatch order never changes the graded output.
+	order := make([]int, len(probes))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return probes[order[a]].OpenEnded() && !probes[order[b]].OpenEnded()
+	})
+
+	var tasks []task
+	for _, pi := range order {
+		probe := probes[pi]
 		for si := 0; si < samples; si++ {
 			tasks = append(tasks,
 				task{before, probe.Prompt, fmt.Sprintf("probe %s before sample %d", probe.ID, si+1), "before", &beforeRecs[pi][si]},
@@ -165,7 +182,7 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 	total := len(tasks)
 	for _, t := range tasks {
 		g.Go(func() error {
-			rec, err := run(gctx, t.branch, t.prompt)
+			rec, err := runWithRetry(gctx, run, t.branch, t.prompt, t.label)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.label, err)
 			}
@@ -207,8 +224,31 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 	return aggregator.Compare(aggs), prefs, aggregator.ComputeDeltas(aggs), nil
 }
 
+// runWithRetry retries a sample on transient failure (an occasional claude -p
+// flake or API error): one dying run must not abort a whole 96-run benchmark.
+// Each attempt is a fresh worktree + claude invocation. Stops early if the pool
+// context is cancelled.
+func runWithRetry(ctx context.Context, run runFunc, branch, prompt, label string) (*parser.RunRecord, error) {
+	const maxAttempts = 3
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var rec *parser.RunRecord
+		if rec, err = run(ctx, branch, prompt); err == nil {
+			return rec, nil
+		}
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		if attempt < maxAttempts {
+			fmt.Fprintf(os.Stderr, "retry %d/%d · %s · %v\n", attempt, maxAttempts-1, label, err)
+		}
+	}
+	return nil, err
+}
+
 // harnessRun is the production runFunc: it runs one sample through the real
-// harness for a fixed target and memory policy.
+// harness for a fixed target and memory policy. Each call gets its own worktree
+// so concurrent claude sessions never share a cwd.
 func harnessRun(target string, noMem bool) runFunc {
 	return func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error) {
 		res, err := harness.Run(ctx, harness.Opts{

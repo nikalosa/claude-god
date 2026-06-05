@@ -51,11 +51,20 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 	}
 
 	wt := filepath.Join(artifacts, "wt")
+	// Only the worktree admin op races on the shared .git, so lock just that
+	// (fast: --no-checkout writes no files) and populate the tree outside the
+	// lock. The slow checkout then parallelizes across runs instead of
+	// serializing one-at-a-time. Per-run worktree keeps each claude session in
+	// its own cwd (claude keys project state by realpath, so a shared cwd would
+	// collide under concurrency).
 	worktreeMu.Lock()
-	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--detach", wt, opts.Branch)
+	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--no-checkout", "--detach", wt, opts.Branch)
 	worktreeMu.Unlock()
 	if addErr != nil {
 		return nil, fmt.Errorf("worktree add: %w", addErr)
+	}
+	if err := gitC(ctx, wt, "reset", "--hard", "HEAD"); err != nil {
+		return nil, fmt.Errorf("worktree checkout: %w", err)
 	}
 	defer func() {
 		worktreeMu.Lock()

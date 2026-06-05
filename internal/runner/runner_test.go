@@ -109,10 +109,17 @@ func TestGradeProbe_OpenEnded_NilJudgeErrors(t *testing.T) {
 	}
 }
 
-func TestGradeProbe_PropagatesJudgeError(t *testing.T) {
+func TestGradeProbe_DegradesOnPreferenceError(t *testing.T) {
 	probe := dsl.Probe{ID: "design", Prompt: "q", Kind: dsl.OpenEnded}
 	j := judge.StubJudge{PrefErr: errors.New("boom")}
-	if _, _, err := GradeProbe(ctx, probe, recs("a"), recs("b"), j); err == nil {
-		t.Error("expected judge error to propagate")
+	agg, pref, err := GradeProbe(ctx, probe, recs("a"), recs("b"), j)
+	if err != nil {
+		t.Fatalf("preference is report-only; a judge failure must not abort grading: %v", err)
+	}
+	if pref != nil {
+		t.Errorf("expected nil preference on judge failure, got %+v", pref)
+	}
+	if agg.ProbeID != "design" {
+		t.Errorf("Numbers must survive a preference failure; ProbeID = %q", agg.ProbeID)
 	}
 }
