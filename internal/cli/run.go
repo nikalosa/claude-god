@@ -133,11 +133,12 @@ func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
 }
 
 // runBenchmark samples every probe on the before and after branches in a
-// bounded parallel pool, then grades each serially, returning the verdicts,
-// open-ended preferences, and Numbers. The runs are independent, so the pool
-// changes nothing about the result; only Duration inflates under concurrency
-// (see ADR-0005). Shared by run and calibrate (calibrate passes the same branch
-// on both sides). run is injected so the pool is testable without claude.
+// bounded parallel pool, then grades the probes in a second bounded pool,
+// returning the verdicts, open-ended preferences, and Numbers. Both pools are
+// scheduling details: results are collected by index, so concurrency changes
+// nothing about the result; only Duration inflates under concurrency (see
+// ADR-0005). Shared by run and calibrate (calibrate passes the same branch on
+// both sides). run is injected so the pool is testable without claude.
 func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
@@ -209,16 +210,37 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 		return nil, nil, nil, err
 	}
 
-	aggs := make([]aggregator.AggregatedOutcome, 0, len(probes))
-	var prefs []runner.PreferenceResult
+	// Grade the probes in the same bounded pool: only the judge calls (Prefer,
+	// Score) shell claude -p, so concurrency overlaps that latency; aggregation
+	// is pure CPU and rides along inside each task. Results are written by probe
+	// index and preferences compacted in probe order after the pool drains, so
+	// completion order never changes the report (same property as the run pool,
+	// ADR-0005). First grade error cancels in-flight judge calls.
+	aggs := make([]aggregator.AggregatedOutcome, len(probes))
+	prefSlots := make([]*runner.PreferenceResult, len(probes))
+	gg, ggctx := errgroup.WithContext(ctx)
+	gg.SetLimit(concurrency)
+	var graded int64
 	for pi, probe := range probes {
-		agg, pref, err := runner.GradeProbe(ctx, probe, beforeRecs[pi], afterRecs[pi], j)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("probe %s: %w", probe.ID, err)
-		}
-		aggs = append(aggs, agg)
-		if pref != nil {
-			prefs = append(prefs, *pref)
+		gg.Go(func() error {
+			agg, pref, err := runner.GradeProbe(ggctx, probe, beforeRecs[pi], afterRecs[pi], j)
+			if err != nil {
+				return fmt.Errorf("probe %s: %w", probe.ID, err)
+			}
+			aggs[pi] = agg
+			prefSlots[pi] = pref
+			fmt.Fprintf(os.Stderr, "[graded %d/%d] %s\n", atomic.AddInt64(&graded, 1), len(probes), probe.ID)
+			return nil
+		})
+	}
+	if err := gg.Wait(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	var prefs []runner.PreferenceResult
+	for _, p := range prefSlots {
+		if p != nil {
+			prefs = append(prefs, *p)
 		}
 	}
 	return aggregator.Compare(aggs), prefs, aggs, nil
