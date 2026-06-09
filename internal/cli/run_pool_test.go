@@ -2,12 +2,16 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"regexp"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/dsl"
+	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
@@ -79,4 +83,114 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	if reg == 0 || newp == 0 {
 		t.Fatalf("fixture is vacuous: want a regression and a new pass, got reg=%d newp=%d (%+v)", reg, newp, v1)
 	}
+}
+
+func openEndedProbes(ids ...string) []dsl.Probe {
+	probes := make([]dsl.Probe, len(ids))
+	for i, id := range ids {
+		probes[i] = dsl.Probe{ID: id, Prompt: id, Kind: dsl.OpenEnded}
+	}
+	return probes
+}
+
+// TestRunBenchmark_JudgeDeterministicAcrossConcurrency extends the determinism
+// guarantee to the judge path: open-ended probes route through j.Prefer, and
+// the compacted preferences must stay in probe order regardless of which task
+// finishes first. Run with -race for the indexed writes.
+func TestRunBenchmark_JudgeDeterministicAcrossConcurrency(t *testing.T) {
+	probes := openEndedProbes("alpha", "beta", "gamma")
+	ctx := context.Background()
+	j := judge.StubJudge{Pref: judge.Preference{Outcome: judge.AfterBetter}}
+
+	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, j)
+	if err != nil {
+		t.Fatalf("concurrency 1: %v", err)
+	}
+	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, j)
+	if err != nil {
+		t.Fatalf("concurrency 8: %v", err)
+	}
+
+	if !reflect.DeepEqual(v1, v8) || !reflect.DeepEqual(a1, a8) || !reflect.DeepEqual(p1, p8) {
+		t.Errorf("results differ by concurrency:\n c1 v=%+v p=%+v\n c8 v=%+v p=%+v", v1, p1, v8, p8)
+	}
+	if len(p1) != len(probes) {
+		t.Fatalf("want a preference per open-ended probe, got %d/%d", len(p1), len(probes))
+	}
+	for i, pr := range p1 {
+		if pr.ProbeID != probes[i].ID {
+			t.Errorf("preference %d out of probe order: got %q want %q", i, pr.ProbeID, probes[i].ID)
+		}
+	}
+}
+
+// TestRunBenchmark_GradesConcurrently proves grading actually overlaps rather
+// than running serially: a judge that blocks until every probe's Prefer call
+// has entered can only return if all of them run at once. If grading were
+// serial, the barrier never reaches N and the test fails on timeout.
+func TestRunBenchmark_GradesConcurrently(t *testing.T) {
+	const n = 4
+	probes := openEndedProbes("p1", "p2", "p3", "p4")
+
+	var arrived int64
+	allIn := make(chan struct{})
+	release := make(chan struct{})
+	j := judge.StubJudge{PreferFunc: func(ctx context.Context, _, _, _ string) (judge.Preference, error) {
+		if atomic.AddInt64(&arrived, 1) == n {
+			close(allIn)
+		}
+		<-release
+		return judge.Preference{Outcome: judge.Tie}, nil
+	}}
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, n, fakeRun, j)
+		done <- err
+	}()
+
+	select {
+	case <-allIn:
+		close(release)
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatalf("only %d/%d grading tasks ran concurrently — grading is serial", atomic.LoadInt64(&arrived), n)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("runBenchmark: %v", err)
+	}
+}
+
+// TestRunBenchmark_HardGradeErrorAborts: a judge_rubric Score failure is a hard
+// grade error, so the whole phase aborts (errgroup first-error) rather than
+// reporting a half-graded matrix.
+func TestRunBenchmark_HardGradeErrorAborts(t *testing.T) {
+	probes := []dsl.Probe{{ID: "j", Prompt: "q", Kind: dsl.RuleBased, Rules: []dsl.Rule{{
+		ID: "r", Severity: dsl.Critical, Checks: []dsl.Check{&dsl.JudgeRubric{Facts: []string{"f"}, PassScore: 50}},
+	}}}}
+	j := judge.StubJudge{ScoreErr: errors.New("boom")}
+
+	if _, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j); err == nil {
+		t.Fatal("want runBenchmark to abort on a hard grade error, got nil")
+	}
+}
+
+// TestRunBenchmark_PreferenceErrorIsDropped: a preference is report-only, so a
+// failing Prefer must not abort — the probe keeps its Numbers and every other
+// probe survives, that probe just contributes no preference.
+func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
+	probes := openEndedProbes("alpha", "beta")
+	j := judge.StubJudge{PrefErr: errors.New("boom")}
+
+	verdicts, prefs, aggs, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j)
+	if err != nil {
+		t.Fatalf("preference error must not abort: %v", err)
+	}
+	if len(prefs) != 0 {
+		t.Errorf("want no preferences when every Prefer fails, got %d", len(prefs))
+	}
+	if len(aggs) != len(probes) {
+		t.Errorf("want Numbers kept for every probe, got %d/%d", len(aggs), len(probes))
+	}
+	_ = verdicts
 }
