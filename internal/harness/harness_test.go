@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -63,4 +64,34 @@ func TestHarness_Dogfood(t *testing.T) {
 	rj, _ := json.MarshalIndent(res.Record, "", "  ")
 	t.Logf("RunRecord:\n%s", rj)
 	t.Logf("artifacts: stream=%s diff=%s diff_stat=%s", res.StreamPath, res.DiffPath, res.DiffStatPath)
+}
+
+// TestReadOnlyBashSettings pins the shape of the --settings JSON that wires the
+// PreToolUse Bash guard (no claude needed).
+func TestReadOnlyBashSettings(t *testing.T) {
+	s, err := readOnlyBashSettings()
+	if err != nil {
+		t.Fatalf("readOnlyBashSettings: %v", err)
+	}
+	var got struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
+					Type    string `json:"type"`
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(s), &got); err != nil {
+		t.Fatalf("settings is not valid JSON: %v\n%s", err, s)
+	}
+	if len(got.Hooks.PreToolUse) != 1 || got.Hooks.PreToolUse[0].Matcher != "Bash" {
+		t.Fatalf("expected one PreToolUse hook matching Bash, got %+v", got.Hooks.PreToolUse)
+	}
+	h := got.Hooks.PreToolUse[0].Hooks
+	if len(h) != 1 || h[0].Type != "command" || !strings.HasSuffix(h[0].Command, "__bash-read-guard") {
+		t.Fatalf("expected a command hook ending in __bash-read-guard, got %+v", h)
+	}
 }

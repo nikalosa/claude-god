@@ -1,26 +1,31 @@
 // Package bashguard classifies a shell command as read-only or not. It is the
 // enforcement core behind the harness's PreToolUse hook: headless runs may shell
-// out to inspect the Environment (cat/head/sed/grep, like a terminal) but must
-// never create or mutate a file, install packages, or hit the network
-// (ADR-0006). The model under test is cooperative, not adversarial, but the
-// guarantee must hold regardless, so the classifier is allowlist-first and fails
-// closed: anything it cannot prove read-only is denied.
+// out to inspect the environment (cat/head/sed/grep/git, like a terminal) so the
+// context measurement mirrors a real session, but must not run arbitrary code,
+// install packages, hit the network, or mutate state a run reset cannot undo
+// (ADR-0006, ADR-0008).
+//
+// The model under test is cooperative, so the bar is not an airtight sandbox; it
+// is to block the actions the run's backstop cannot reverse. Runs execute in an
+// ephemeral git worktree whose tracked-file writes are captured and discarded, so
+// the guard deliberately does NOT chase in-tool file writes (sort -o, find
+// -fprint, uniq IN OUT). It blocks the un-backstopped classes: command-runners,
+// interpreters, command/process substitution, the network, and git subcommands
+// that would mutate the SHARED .git (refs/objects a worktree reset does not
+// restore). Output-to-a-file is still blocked so a run cannot read a file it just
+// wrote and mistake it for the environment.
 package bashguard
 
 import (
-	"path"
+	"regexp"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// readOnlyCmds are commands that cannot, by themselves, write a file or reach
-// the network. Commands that run other commands (env, xargs, sudo, time,
-// timeout, watch, nice, command, exec) are deliberately absent: they would hide
-// the real command from this check. Interpreters (python, node, perl, ruby, awk,
-// php, bash, sh) are absent for the same reason — they can write. git is handled
-// specially (read subcommands only). tee/dd/cp/mv/rm/mkdir/touch/ln/truncate/
-// install/chmod/chown are absent because they mutate.
+// readOnlyCmds cannot, by themselves, run another program or reach the network.
+// Command-runners (env, xargs, sudo, time, command, exec) and interpreters
+// (python, node, perl, awk, bash, sh) are absent: they hide the real command.
 var readOnlyCmds = map[string]bool{
 	"cat": true, "head": true, "tail": true, "grep": true, "egrep": true,
 	"fgrep": true, "rg": true, "ls": true, "find": true, "wc": true, "sort": true,
@@ -28,48 +33,35 @@ var readOnlyCmds = map[string]bool{
 	"stat": true, "file": true, "basename": true, "dirname": true,
 	"realpath": true, "readlink": true, "tree": true, "echo": true,
 	"printf": true, "pwd": true, "true": true, ":": true, "nl": true,
-	"fold": true, "od": true, "xxd": true, "hexdump": true, "jq": true,
-	"yq": true, "column": true, "sed": true, "cd": true, "test": true,
-	"[": true, "less": true, "more": true, "bat": true, "strings": true,
-	"date": true, "git": true,
+	"fold": true, "od": true, "hexdump": true, "jq": true,
+	"column": true, "sed": true, "cd": true, "test": true, "[": true,
+	"strings": true, "git": true,
 }
 
-// gitReadSubcmds are git subcommands that are read-only for any arguments.
-// Ambiguous ones (remote, tag, branch, config, symbolic-ref) are excluded
-// because they read with some args and write with others.
+// gitReadSubcmds are git subcommands that only ever read. Any subcommand with a
+// mutating form (commit/add/checkout/reset/branch/tag/remote/stash/config/...) is
+// excluded wholesale: it can write the worktree's SHARED .git (refs, objects),
+// which the worktree reset does not restore. A read subcommand that writes a file
+// in the cwd (git diff --output) is fine — that is backstopped.
 var gitReadSubcmds = map[string]bool{
-	"log": true, "show": true, "diff": true, "status": true, "ls-files": true,
-	"ls-tree": true, "cat-file": true, "blame": true, "grep": true,
-	"rev-parse": true, "describe": true, "shortlog": true, "rev-list": true,
-	"name-rev": true, "for-each-ref": true, "whatchanged": true,
-	"count-objects": true, "show-ref": true, "var": true,
+	"log": true, "show": true, "diff": true, "diff-tree": true,
+	"diff-index": true, "blame": true, "status": true, "grep": true,
+	"ls-files": true, "ls-tree": true, "rev-parse": true, "rev-list": true,
+	"describe": true, "shortlog": true, "cat-file": true, "whatchanged": true,
+	"merge-base": true, "name-rev": true,
 }
 
-// gitValueFlags are global git flags that consume the following token, so the
-// subcommand is two tokens further on (e.g. `git -C /path log`).
-var gitValueFlags = map[string]bool{
-	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true,
+// findExecFlags turn find into an executor or tree mutator — the part a worktree
+// reset cannot undo. Pure -fprint* file writes are omitted: they are backstopped.
+var findExecFlags = map[string]bool{
+	"-delete": true, "-exec": true, "-execdir": true, "-ok": true, "-okdir": true,
 }
 
-// writeFlags map an otherwise-read command to flags that redirect its output to
-// a named file (so the command itself writes, with no shell redirection to
-// catch). Long flags also match their `--flag=value` form; short flags also
-// match their attached-value form (e.g. `-ofile`).
-var writeFlags = map[string][]string{
-	"sort": {"-o", "--output"},
-	"tree": {"-o", "--output"},
-	"yq":   {"-i", "--inplace"},
-	"git":  {"--output", "--output-directory"},
-	"date": {"-s", "--set"},
-}
-
-// findWriteFlags turn find from a pure query into a mutator.
-var findWriteFlags = map[string]bool{
-	"-delete": true, "-exec": true, "-execdir": true, "-ok": true,
-	"-okdir": true, "-fprint": true, "-fprintf": true, "-fls": true,
-	"-fprint0": true,
-}
+// sedSlice matches a print-only sed script: a line address (numeric, $, N~step,
+// or /regex/) optionally to a second address (numeric, $, +N, ~N, /regex/), with
+// an optional trailing p. No w/e/r/s verb can match it, so no sed script that
+// writes a file or executes a command is accepted — use grep for anything richer.
+var sedSlice = regexp.MustCompile(`^(\$|[0-9]+|[0-9]+~[0-9]+|/[^/]+/)(,(\$|[0-9]+|\+[0-9]+|~[0-9]+|[0-9]+~[0-9]+|/[^/]+/))?p?$`)
 
 // Classify reports whether command is provably read-only. On any parse failure
 // or unresolvable construct it returns (false, reason) — fail closed.
@@ -96,9 +88,7 @@ func Classify(command string) (allow bool, reason string) {
 		case *syntax.Redirect:
 			deny = checkRedirect(n)
 		case *syntax.CallExpr:
-			if len(n.Args) > 0 {
-				deny = checkCommand(n.Args)
-			}
+			deny = checkCall(n)
 		}
 		return deny == ""
 	})
@@ -108,132 +98,188 @@ func Classify(command string) (allow bool, reason string) {
 	return true, ""
 }
 
-// checkRedirect blocks any output redirection whose target is not the null
-// device or a file-descriptor duplication. Input redirections are read-only.
+// checkRedirect blocks output redirection to a file (so a run cannot read back
+// something it wrote) and bash's network pseudo-devices. Descriptor duplication
+// (>&N) is allowed: the harness passes the child only fds 0/1/2, so there is no
+// leaked writable descriptor, and any write a dup reached lands in the reset
+// worktree.
 func checkRedirect(r *syntax.Redirect) string {
 	switch r.Op {
 	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc, syntax.DplIn:
-		// Input is read-only, except bash's network pseudo-devices, which open a
-		// socket (no network during runs — ADR-0006).
 		if s, ok := litOf(r.Word); ok && isNetDevice(s) {
 			return "network redirection (/dev/tcp, /dev/udp) is not allowed"
 		}
 		return ""
 	case syntax.DplOut:
-		// `2>&1`, `>&2`: duplicating a descriptor writes nothing to disk.
-		if s, ok := litOf(r.Word); ok && isFD(s) {
-			return ""
-		}
-		return "output descriptor duplication to a non-descriptor target is not allowed"
+		return ""
 	default:
 		// RdrOut >, AppOut >>, ClbOut >|, RdrInOut <>, RdrAll &>, AppAll &>>.
-		s, ok := litOf(r.Word)
-		if ok && (s == "/dev/null" || isFD(s)) {
+		if s, ok := litOf(r.Word); ok && s == "/dev/null" {
 			return ""
 		}
 		return "output redirection to a file is not allowed (only /dev/null)"
 	}
 }
 
+// isNetDevice matches bash's network pseudo-devices anywhere in a word, so both
+// `</dev/tcp/h/p` and `--random-source=/dev/tcp/h/p` are caught.
 func isNetDevice(s string) bool {
-	return strings.HasPrefix(s, "/dev/tcp/") || strings.HasPrefix(s, "/dev/udp/")
+	return strings.Contains(s, "/dev/tcp/") || strings.Contains(s, "/dev/udp/")
 }
 
-func isFD(s string) bool {
-	s = strings.TrimPrefix(s, "&")
-	if s == "" || s == "-" {
-		return true
+// checkCall validates one simple command, including its environment prefix.
+func checkCall(c *syntax.CallExpr) string {
+	if len(c.Args) == 0 {
+		return "" // pure assignment (e.g. FOO=bar) with no command — harmless
 	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
+	if len(c.Assigns) > 0 {
+		// `GIT_EXTERNAL_DIFF=evil git diff`, `LESSOPEN='|sh' less` etc. — an inline
+		// env prefix is an exec/behaviour-injection vector and is never needed to
+		// read a file.
+		return "inline environment assignment before a command is not allowed"
 	}
-	return true
+	return checkCommand(c.Args)
 }
 
-// checkCommand validates the head command of one simple command.
 func checkCommand(args []*syntax.Word) string {
 	name, ok := litOf(args[0])
 	if !ok {
 		return "dynamic command name is not allowed"
 	}
-	base := name
 	if strings.ContainsRune(name, '/') {
-		base = path.Base(name) // /usr/bin/grep -> grep; ./script.sh -> script.sh
+		// `./cat`, `bin/cat`, `../cat` resolve to a path.Base in the allowlist but
+		// run an attacker-controlled file. A read-only run only needs PATH-resolved
+		// bare commands.
+		return "explicit command paths are not allowed; use a bare command name: " + name
 	}
-	if !readOnlyCmds[base] {
-		return "command not in the read-only allowlist: " + base
+	if !readOnlyCmds[name] {
+		return "command not in the read-only allowlist: " + name
 	}
-	if d := checkWriteFlags(base, args[1:]); d != "" {
-		return d
+	for _, w := range args[1:] {
+		if s, ok := litOf(w); ok && isNetDevice(s) {
+			return "network pseudo-device argument (/dev/tcp, /dev/udp) is not allowed"
+		}
 	}
-	switch base {
-	case "git":
-		return checkGit(args)
+	switch name {
 	case "sed":
 		return checkSed(args)
 	case "find":
 		return checkFind(args)
+	case "git":
+		return checkGit(args)
 	}
 	return ""
 }
 
-func checkWriteFlags(base string, rest []*syntax.Word) string {
-	flags := writeFlags[base]
-	if flags == nil {
-		return ""
-	}
-	for _, w := range rest {
-		s, ok := litOf(w)
-		if !ok {
-			continue
-		}
-		for _, f := range flags {
-			long := strings.HasPrefix(f, "--")
-			if s == f ||
-				(long && strings.HasPrefix(s, f+"=")) ||
-				(!long && len(s) > len(f) && strings.HasPrefix(s, f)) {
-				return base + " " + f + " writes to a file; not allowed"
-			}
-		}
-	}
-	return ""
-}
-
+// checkGit allows only read-only subcommands and forbids every git global flag
+// before the subcommand — that single rule blocks the config-injection RCE
+// vectors (`-c core.pager=…`, `-c diff.external=…`, `--exec-path`). The only
+// subcommand-level exec vector among the read subcommands is `git grep -O`
+// (opens a pager), which is denied explicitly.
 func checkGit(args []*syntax.Word) string {
-	skipNext := false
+	sub := ""
 	for _, w := range args[1:] {
 		s, ok := litOf(w)
 		if !ok {
 			return "git with a dynamic argument is not allowed"
 		}
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		if strings.HasPrefix(s, "-") {
-			if gitValueFlags[s] {
-				skipNext = true
+		if sub == "" {
+			if strings.HasPrefix(s, "-") {
+				return "git global flags are not allowed (config-injection vector): " + s
+			}
+			sub = s
+			if !gitReadSubcmds[sub] {
+				return "git subcommand is not in the read-only allowlist: " + sub
 			}
 			continue
 		}
-		if !gitReadSubcmds[s] {
-			return "git subcommand not in the read-only allowlist: " + s
+		if s == "--open-files-in-pager" || strings.HasPrefix(s, "--open-files-in-pager=") ||
+			(sub == "grep" && (s == "-O" || strings.HasPrefix(s, "-O"))) {
+			return "git grep --open-files-in-pager (-O) runs a pager (exec) and is not allowed"
 		}
-		return ""
 	}
-	return "" // bare `git` prints usage
+	if sub == "" {
+		return "git requires a read-only subcommand"
+	}
+	return ""
 }
 
+// checkSed allows sed only as a print-only slicer: -n/-E/-r/-s/-u/-z flags and -e
+// expression scripts, where every script is a print-only line range (see
+// sedSlice). It rejects -i/-f and any script with a w/e/r/s verb. A bundled
+// trailing -e (the common `-ne 'script'`) routes its next token as the script.
 func checkSed(args []*syntax.Word) string {
+	var scripts []string
+	sawExpr := false
+	firstBareIsScript := true
+	pendingExpr := false
 	for _, w := range args[1:] {
 		s, ok := litOf(w)
 		if !ok {
-			continue // a dynamic arg here is a script/path, not a write flag
+			return "sed with a dynamic argument is not allowed"
 		}
-		if s == "--in-place" || s == "-i" || strings.HasPrefix(s, "-i") {
-			return "sed in-place edit (-i) is not allowed"
+		if pendingExpr {
+			scripts = append(scripts, s)
+			sawExpr = true
+			pendingExpr = false
+			continue
+		}
+		if strings.HasPrefix(s, "--") {
+			switch {
+			case strings.HasPrefix(s, "--in-place"):
+				return "sed in-place edit is not allowed"
+			case strings.HasPrefix(s, "--file"):
+				return "sed -f (external script) is not allowed"
+			case s == "--expression":
+				pendingExpr = true
+			case strings.HasPrefix(s, "--expression="):
+				scripts = append(scripts, strings.TrimPrefix(s, "--expression="))
+				sawExpr = true
+			case s == "--quiet" || s == "--silent" || s == "--regexp-extended" ||
+				s == "--null-data" || s == "--separate" || s == "--unbuffered" || s == "--posix":
+			default:
+				return "sed flag not allowed: " + s
+			}
+			continue
+		}
+		if strings.HasPrefix(s, "-") && s != "-" {
+			body := s[1:]
+			for i := 0; i < len(body); i++ {
+				c := body[i]
+				if c == 'e' {
+					if rest := body[i+1:]; rest != "" {
+						scripts = append(scripts, rest)
+						sawExpr = true
+					} else {
+						pendingExpr = true
+					}
+					break
+				}
+				if !strings.ContainsRune("nrEzsu", rune(c)) {
+					return "sed flag not allowed: " + s
+				}
+			}
+			continue
+		}
+		if !sawExpr && firstBareIsScript {
+			scripts = append(scripts, s)
+			firstBareIsScript = false
+			continue
+		}
+		// remaining bare args are input file paths — read-only
+	}
+	if len(scripts) == 0 {
+		return "sed requires an explicit print-only script"
+	}
+	for _, sc := range scripts {
+		for _, part := range strings.Split(sc, ";") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if !sedSlice.MatchString(part) {
+				return "sed script must be a print-only line range (N, N,M, $, /regex/ with optional p); use grep for anything else: " + sc
+			}
 		}
 	}
 	return ""
@@ -245,8 +291,8 @@ func checkFind(args []*syntax.Word) string {
 		if !ok {
 			continue
 		}
-		if findWriteFlags[s] {
-			return "find action that mutates or executes is not allowed: " + s
+		if findExecFlags[s] {
+			return "find action that executes or deletes is not allowed: " + s
 		}
 	}
 	return ""
