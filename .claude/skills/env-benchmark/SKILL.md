@@ -1,11 +1,11 @@
 ---
-name: env-validator
-description: Thin conversational wrapper over the `claude-validator` CLI — detect Before/After from git, run an A/B benchmark of a repo's Claude environment (CLAUDE.md, .claude/rules, docs, memory) across two configs, and read the report back (Regressions, efficiency Numbers, noise). Use when the dev wants to benchmark or check their Claude environment or a CLAUDE.md restructure, asks "did my restructure regress anything", "is my new context better/cheaper", "check my Claude context", or mentions claude-validator. It reports and the dev decides — it never edits the environment.
+name: env-benchmark
+description: Thin conversational wrapper over the `claude-benchmark` CLI — detect Before/After from git, run an A/B benchmark of a repo's Claude environment (CLAUDE.md, .claude/rules, docs, memory) across two configs, and read the report back (Regressions, efficiency Numbers, noise). Use when the dev wants to benchmark or check their Claude environment or a CLAUDE.md restructure, asks "did my restructure regress anything", "is my new context better/cheaper", "check my Claude context", or mentions claude-benchmark. It reports and the dev decides — it never edits the environment.
 ---
 
 # Benchmark a Claude environment
 
-Drive the `claude-validator` binary to run the whole **Corpus** across **Before** and
+Drive the `claude-benchmark` binary to run the whole **Corpus** across **Before** and
 **After** (one report) and read it back with the dev. The smarts — auto-detection, corpus
 discovery, the spend plan — live in the **binary**, not here
 ([ADR-0008](../../../docs/adr/0008-one-command-evaluation-and-auto-detection.md)). You route,
@@ -19,7 +19,7 @@ confirm, and interpret. Glossary: [CONTEXT.md](../../../CONTEXT.md).
      `HEAD`, After = working tree; clean tree → Before = `merge-base(default-branch, HEAD)`,
      After = `HEAD`. If the dev names a baseline in chat ("vs the release branch"), pass
      `--before <ref>`.
-   - Check `.validator/corpus/` holds ≥1 `*.yaml`. **None** → tell the dev there's no corpus
+   - Check `.benchmark/corpus/` holds ≥1 `*.yaml`. **None** → tell the dev there's no corpus
      and offer to launch the **generate-corpus** skill. **Several** and the dev didn't pick →
      ask which, pass `--corpus <file>`.
 
@@ -28,7 +28,7 @@ confirm, and interpret. Glossary: [CONTEXT.md](../../../CONTEXT.md).
    explicit yes, then invoke with `--yes`:
 
    ```sh
-   claude-validator --yes            # plus any --before/--after/--corpus/--level the dev asked for
+   claude-benchmark --yes            # plus any --before/--after/--corpus/--level the dev asked for
    ```
 
    Pass through dev requests verbatim. `--level` defaults to `l1` (no judge); pass `l2` to

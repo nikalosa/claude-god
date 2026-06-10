@@ -1,6 +1,6 @@
 probes:
   - id: purpose_recall
-    prompt: "In one sentence, what is the purpose of claude-validator?"
+    prompt: "In one sentence, what is the purpose of claude-benchmark?"
     rules:
       - id: mentions_ab_benchmark
         severity: critical

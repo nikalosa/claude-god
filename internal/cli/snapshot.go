@@ -15,11 +15,11 @@ var (
 
 var snapshotCmd = &cobra.Command{
 	Use:   "snapshot <name>",
-	Short: "Pin the target's Environment to a validator/<name> branch",
+	Short: "Pin the target's Environment to a benchmark/<name> branch",
 	Long: `snapshot captures the target repo's Environment as an immutable
-validator/<name> branch that run/calibrate consume: the committed HEAD tree
+benchmark/<name> branch that run/calibrate consume: the committed HEAD tree
 (CLAUDE.md, Claude rules, docs) plus, by default, the project memory copied into
-.validator/memory-snapshot. Re-snapshotting the same name overwrites the branch.
+.benchmark/memory-snapshot. Re-snapshotting the same name overwrites the branch.
 Commit your Environment edits first — the snapshot reflects HEAD.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -32,7 +32,7 @@ Commit your Environment edits first — the snapshot reflects HEAD.`,
 			return err
 		}
 		fmt.Printf("created %s\n", branch)
-		fmt.Printf("use it with: claude-validator run --before %s --after <other> ...\n", branch)
+		fmt.Printf("use it with: claude-benchmark run --before %s --after <other> ...\n", branch)
 		return nil
 	},
 }

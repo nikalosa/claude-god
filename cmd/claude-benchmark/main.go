@@ -1,4 +1,4 @@
-// Command claude-validator A/B-benchmarks two CLAUDE.md context configurations
+// Command claude-benchmark A/B-benchmarks two CLAUDE.md context configurations
 // for behavioral-fidelity regressions. See docs/PRD.md for the full design.
 package main
 

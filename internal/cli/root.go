@@ -1,4 +1,4 @@
-// Package cli wires the cobra command tree for claude-validator.
+// Package cli wires the cobra command tree for claude-benchmark.
 package cli
 
 import (
@@ -9,9 +9,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "claude-validator",
+	Use:   "claude-benchmark",
 	Short: "A/B-benchmark CLAUDE.md context configs for behavioral-fidelity regressions",
-	Long: `claude-validator runs an A/B benchmark of two Claude Code context
+	Long: `claude-benchmark runs an A/B benchmark of two Claude Code context
 configurations (before vs after a restructure) against a corpus of probes,
 grades each rule pass/fail, and reports behavioral-fidelity and cost deltas.
 

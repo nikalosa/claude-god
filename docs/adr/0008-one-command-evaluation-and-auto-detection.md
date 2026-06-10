@@ -2,8 +2,8 @@
 
 **Status:** accepted (extends the PRD's CLI/UX)
 
-The dev-facing entry point collapses to a single command. Running `claude-validator`
-with no subcommand — or the **env-validator** skill from inside Claude Code — runs the
+The dev-facing entry point collapses to a single command. Running `claude-benchmark`
+with no subcommand — or the **env-benchmark** skill from inside Claude Code — runs the
 whole **A/B benchmark**: it auto-discovers the **Corpus**, auto-detects **Before** and
 **After** from git, runs every probe across both environments, and prints the report. The
 prior flow (`snapshot before` → switch worktree → `snapshot after` → `calibrate` →
@@ -25,9 +25,11 @@ the manual `snapshot` step — the sole reason a dev juggled worktrees — is re
 Memory is injected **live** (current project memory → both worktrees, held constant across
 the A/B) instead of being committed into a snapshot branch.
 
-**Out of scope.** The `claude-validator` → `claude-evaluator` rename (and the formal
-"Evaluation" term) is a separate, not-yet-ratified decision; this ADR keeps the existing
-`claude-validator` / `.validator/` naming and only adds the bare command + auto-detection.
+**Out of scope here (since settled).** The tool rename was deferred by this ADR; it was
+later ratified in [ADR-0010](0010-rename-to-claude-benchmark.md) — the root is **`benchmark`**
+(`claude-benchmark` / `.benchmark/`), not the briefly-floated `claude-evaluator`. This ADR only
+adds the bare command + auto-detection. The `evaluate` verb (this file's title, `evaluate.go`)
+is the still-unreconciled third root and is intentionally left as-is.
 
 ## Considered Options
 
@@ -48,7 +50,7 @@ the A/B) instead of being committed into a snapshot branch.
   points at `generate-corpus`; the skill offers to launch it.
 - **Thick skill over a low-level CLI.** Rejected: the dev runs from terminal *and* Claude
   Code, so the engine itself must be convenient. Smarts live in the Go binary (deterministic,
-  ADR-0001); the thin **env-validator** skill adds only what a skill can — reading the report
+  ADR-0001); the thin **env-benchmark** skill adds only what a skill can — reading the report
   back as a conversation — and must never auto-edit the environment ("automated restructuring
   driven by results" is out of scope until the tool is trusted).
 
@@ -60,9 +62,9 @@ the A/B) instead of being committed into a snapshot branch.
 - Before spending (a 20-probe corpus at N=3 ≈ 120 `claude -p` calls), the command prints a
   plan — resolved Before/After, probe count, run count — and asks to proceed; `--yes` skips it
   for the skill / CI.
-- Corpus auto-discovered from `.validator/corpus/`; one file is used directly, several prompt
+- Corpus auto-discovered from `.benchmark/corpus/`; one file is used directly, several prompt
   the dev to choose (or error listing them when stdin is not a TTY).
-- The **env-validator** skill has three jobs — detect & route (offer to launch
+- The **env-benchmark** skill has three jobs — detect & route (offer to launch
   `generate-corpus` if none), run with in-chat confirmation, interpret the report — and one
   boundary: it never edits the environment.
 - Reproducing a benchmark months later (a `--freeze` that pins its inputs) is deferred;

@@ -1,4 +1,4 @@
-# claude-validator
+# claude-benchmark
 
 The language of comparing two Claude environments (the messy "before" and the restructured "after") and reporting what improved and what changed. The product is a **decision-support report a human reads** — not an automated gate. Terms here are the project's vocabulary; general programming concepts are excluded.
 
@@ -9,7 +9,7 @@ The language of comparing two Claude environments (the messy "before" and the re
 ### Subjects under test
 
 **Target**:
-The repository whose context configuration is being benchmarked. The validator runs Claude Code headlessly *inside* it.
+The repository whose context configuration is being benchmarked. claude-benchmark runs Claude Code headlessly *inside* it.
 _Avoid_: Repo-under-test, subject, SUT.
 
 **Environment**:
@@ -23,7 +23,7 @@ _Avoid_: Tier, Level, L1–L4 (retired — see Flagged ambiguities), stage, phas
 ### Corpus
 
 **Corpus**:
-The per-target set of probes — the **dataset** the dev runs Claude against, before and after. Drafted by the **Generator**, then reviewed and finalized by the dev. The validator ships an example corpus only; a target owns its real corpus.
+The per-target set of probes — the **dataset** the dev runs Claude against, before and after. Drafted by the **Generator**, then reviewed and finalized by the dev. claude-benchmark ships an example corpus only; a target owns its real corpus.
 _Avoid_: Suite, test set, training set. "Dataset" is an acceptable synonym.
 
 **Probe**:
@@ -47,12 +47,12 @@ A single *behavior* expected of Claude — the idea/principle that must survive 
 _Avoid_: Assertion, requirement, expectation. **Never** use bare "rule(s)" for source files — see Flagged ambiguities.
 
 **Claude rules**:
-*Only* the `.claude/rules/*` files. One part of an **Environment**, alongside **CLAUDE.md**, **docs**, and **memory** — it does not stand for all of them. The validator does not care if any source text is moved, merged, reworded, or deleted — only whether the **Rules** (behaviors) the maintainer expressed across these still hold.
+*Only* the `.claude/rules/*` files. One part of an **Environment**, alongside **CLAUDE.md**, **docs**, and **memory** — it does not stand for all of them. claude-benchmark does not care if any source text is moved, merged, reworded, or deleted — only whether the **Rules** (behaviors) the maintainer expressed across these still hold.
 _Avoid_: "Rules" (bare — means the graded unit); using "Claude rules" for CLAUDE.md or docs.
 
 **Check**:
 One predicate evaluated against a run. Pattern-first (e.g. `text_matches`); the **Judge** is the escape hatch for prose. A rule passes only if all its checks pass.
-_Avoid_: Predicate (reserve for the DSL family), matcher, validator (overloaded with the tool name).
+_Avoid_: Predicate (reserve for the DSL family), matcher, validator (the tool's retired name — and it implies a gate, which a Check is not).
 
 ### Corpus generation
 
@@ -70,7 +70,7 @@ _Avoid_: Prompt (bare), generation prompt.
 One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled at an odd N per environment (default 1; raise to N≥3 for the majority-vote and **Disagreement** signals). A run is **read-only**: the model inspects the Environment with `Read/Grep/Glob` and with `Bash` constrained to read-only commands by a PreToolUse guard (so it slices files terminal-style instead of reading them whole), but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md), [ADR-0009](docs/adr/0009-read-only-bash-via-pretooluse-guard.md)) — the graded signal is the assistant *text*, never an artifact.
 
 **Regression**:
-A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After) — "what changed for the worse." Visible in the matrix and read by the dev; the validator does not gate, score, or count it.
+A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After) — "what changed for the worse." Visible in the matrix and read by the dev; claude-benchmark does not gate, score, or count it.
 
 **New pass**:
 A rule that flipped FAIL → PASS — "what improved." Read by the dev.
@@ -101,7 +101,7 @@ _Avoid_: Metrics (overloaded), stats.
 **"rule"** — overloaded, resolved:
 - **Rule** (bare) = the graded behavior unit in the corpus.
 - **Claude rules** = *only* the `.claude/rules/*` source files — never CLAUDE.md or docs.
-A restructure freely rewrites CLAUDE.md, Claude rules, and docs; the validator checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what changed."
+A restructure freely rewrites CLAUDE.md, Claude rules, and docs; claude-benchmark checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what changed."
 
 **Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The `--level` CLI flag carries no conceptual weight: it selects no probes — every probe in the corpus runs — it only builds the **Judge** when the corpus needs one (pass `l2` for a corpus with open-ended or `judge_rubric` probes).
 

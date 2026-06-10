@@ -86,7 +86,7 @@ func TestCreate_WithMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if branch != "validator/before" {
+	if branch != "benchmark/before" {
 		t.Fatalf("branch = %q", branch)
 	}
 
@@ -95,8 +95,8 @@ func TestCreate_WithMemory(t *testing.T) {
 		"CLAUDE.md",
 		".claude/rules/money.md",
 		"docs/design.md",
-		".validator/memory-snapshot/MEMORY.md",
-		".validator/memory-snapshot/fact.md",
+		".benchmark/memory-snapshot/MEMORY.md",
+		".benchmark/memory-snapshot/fact.md",
 	} {
 		if !has(files, want) {
 			t.Errorf("branch %s missing %q; tree=%v", branch, want, files)
@@ -148,7 +148,7 @@ func TestCreate_Overwrite(t *testing.T) {
 	if _, err := Create(ctx, Opts{TargetRepo: repo, Name: "before", IncludeMemory: true}); err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
-	first := tgit(t, repo, "rev-parse", "validator/before")
+	first := tgit(t, repo, "rev-parse", "benchmark/before")
 
 	// Change the environment and re-snapshot the same name.
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), "# rules\n- be concise\n- new rule\n")
@@ -157,7 +157,7 @@ func TestCreate_Overwrite(t *testing.T) {
 	if _, err := Create(ctx, Opts{TargetRepo: repo, Name: "before", IncludeMemory: true}); err != nil {
 		t.Fatalf("re-snapshot: %v", err)
 	}
-	second := tgit(t, repo, "rev-parse", "validator/before")
+	second := tgit(t, repo, "rev-parse", "benchmark/before")
 	if first == second {
 		t.Error("re-snapshot should overwrite the branch to a new commit")
 	}

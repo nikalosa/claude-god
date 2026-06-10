@@ -3,7 +3,7 @@
 Be extremely concise. Sacrifice grammar for the sake of concision. Speak as understandable, direct and simple as possible.
 </always_consider>
 
-`claude-god` = umbrella for Claude Code tooling experiments. First tool: `claude-validator` — A/B benchmarks CLAUDE.md context configs for behavioral-fidelity regressions.
+`claude-god` = umbrella for Claude Code tooling experiments. First tool: `claude-benchmark` — A/B benchmarks CLAUDE.md context configs for behavioral-fidelity regressions.
 
 Shared vocabulary in CONTEXT.md — read first, use those terms.
 Full design + locked decisions in docs/PRD.md — read when doing design work.

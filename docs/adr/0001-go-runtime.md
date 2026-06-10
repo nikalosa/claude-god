@@ -1,8 +1,8 @@
-# Build claude-validator in Go
+# Build claude-benchmark in Go
 
 **Status:** accepted
 
-We're writing claude-validator in Go rather than TypeScript or Python. The tool is fundamentally subprocess orchestration (`claude -p`, `git worktree`, `git diff`) with fan-out parallelism (N=3/N=5 runs per probe) over a deterministic data pipeline (stream-json parse → run record → DSL grade → aggregate → report). Go fits all three: `os/exec` is its home turf, goroutines + `errgroup` are the cleanest model for the parallel runs, and a single static binary is the best distribution story for an OSS CLI (no Node/Python runtime on the user's machine). Its forced-explicit struct schemas are *aligned* with the project's core goal — credibility through deterministic, golden-file-tested data shapes.
+We're writing claude-benchmark in Go rather than TypeScript or Python. The tool is fundamentally subprocess orchestration (`claude -p`, `git worktree`, `git diff`) with fan-out parallelism (N=3/N=5 runs per probe) over a deterministic data pipeline (stream-json parse → run record → DSL grade → aggregate → report). Go fits all three: `os/exec` is its home turf, goroutines + `errgroup` are the cleanest model for the parallel runs, and a single static binary is the best distribution story for an OSS CLI (no Node/Python runtime on the user's machine). Its forced-explicit struct schemas are *aligned* with the project's core goal — credibility through deterministic, golden-file-tested data shapes.
 
 ## Considered Options
 

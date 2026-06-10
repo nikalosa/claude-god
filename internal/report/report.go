@@ -26,7 +26,7 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 	}
 
 	var b strings.Builder
-	fmt.Fprintln(&b, "# claude-validator report")
+	fmt.Fprintln(&b, "# claude-benchmark report")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "%d rules · %d regression(s) · %d new pass(es) · %d open-ended\n",
 		len(verdicts), regressions, newPasses, len(prefs))
@@ -95,7 +95,7 @@ func RenderCalibration(verdicts []aggregator.Verdict, aggs []aggregator.Aggregat
 	})
 
 	var b strings.Builder
-	fmt.Fprintln(&b, "# claude-validator calibration (Before vs Before)")
+	fmt.Fprintln(&b, "# claude-benchmark calibration (Before vs Before)")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Noise floor: %d of %d rules flaky on an identical Environment.\n", len(flaky), len(verdicts))
 	fmt.Fprintln(&b)

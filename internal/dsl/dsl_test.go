@@ -347,7 +347,7 @@ func TestLoadCorpus_BadRegex(t *testing.T) {
 // corpora must still load, and every check must remain a regex (text_matches).
 func TestLoadCorpus_ShippedCorpora(t *testing.T) {
 	for _, path := range []string{
-		"../../.validator/corpus/self.yaml",
+		"../../.benchmark/corpus/self.yaml",
 		"../../examples/corpus/l1-smoke.yaml",
 	} {
 		t.Run(filepath.Base(path), func(t *testing.T) {

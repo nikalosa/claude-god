@@ -1,14 +1,14 @@
 # Steering config
 
 The checked-in artifact that drives corpus generation, committed to the **Before** branch
-beside the frozen corpus at `.validator/steering.yaml`. It makes generation reproducible and
+beside the frozen corpus at `.benchmark/steering.yaml`. It makes generation reproducible and
 turns regeneration into a reviewed, additive diff.
 
 ## Schema
 
 ```yaml
-# .validator/steering.yaml
-before: validator/before          # the ref to generate from and freeze onto
+# .benchmark/steering.yaml
+before: benchmark/before          # the ref to generate from and freeze onto
 
 sources:                          # globs of hand-selected source text, resolved on `before`.
   - CLAUDE.md                     #   The ONLY grounding for rule-based probes — each doc is
@@ -33,7 +33,7 @@ severities:                       # priors applied while drafting. The Generator
 - `sources` is the curated input — hand-selected, never the whole Environment. Each matched
   doc is fed to its own rule-based generation subagent (docs only, no code in context).
 - `severities` keys are topics/rule-ids used as priors, not authority. The dev confirms
-  each proposed **Severity** at review. Severity is reading priority — the validator never
+  each proposed **Severity** at review. Severity is reading priority — the benchmark never
   gates.
 - **memory** is excluded from Generator input. If a Target ever encodes a Rule in project
   memory, lift it into `pasted` or a doc first — don't read memory.

@@ -105,7 +105,7 @@ func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (R
 // commit is unreferenced — git GCs it later; the run worktree checks it out by
 // SHA in the meantime.
 func tempCommitWorkingTree(ctx context.Context, repo string) (string, error) {
-	tmp, err := os.MkdirTemp("", "claude-validator-index-*")
+	tmp, err := os.MkdirTemp("", "claude-benchmark-index-*")
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +122,7 @@ func tempCommitWorkingTree(ctx context.Context, repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return git(ctx, repo, env, "commit-tree", tree, "-p", "HEAD", "-m", "claude-validator: working tree under test")
+	return git(ctx, repo, env, "commit-tree", tree, "-p", "HEAD", "-m", "claude-benchmark: working tree under test")
 }
 
 // defaultBranch is origin/HEAD when set, else a local main/master, else an
@@ -163,8 +163,8 @@ func short(sha string) string {
 func git(ctx context.Context, dir string, extraEnv []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=claude-validator", "GIT_AUTHOR_EMAIL=validator@localhost",
-		"GIT_COMMITTER_NAME=claude-validator", "GIT_COMMITTER_EMAIL=validator@localhost",
+		"GIT_AUTHOR_NAME=claude-benchmark", "GIT_AUTHOR_EMAIL=benchmark@localhost",
+		"GIT_COMMITTER_NAME=claude-benchmark", "GIT_COMMITTER_EMAIL=benchmark@localhost",
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	var out, errb bytes.Buffer

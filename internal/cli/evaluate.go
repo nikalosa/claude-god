@@ -32,7 +32,7 @@ var (
 	flagEvalYes         bool
 )
 
-// defaultRunE is the bare `claude-validator` default action (ADR-0008): it
+// defaultRunE is the bare `claude-benchmark` default action (ADR-0008): it
 // auto-discovers the corpus, auto-detects Before/After from git, prints a spend
 // plan, confirms, then runs the whole A/B benchmark and prints the report. Every
 // flag is an optional override of an auto-detected default.
@@ -111,14 +111,14 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// discoverCorpus finds the corpus under <target>/.validator/corpus/: one file is
+// discoverCorpus finds the corpus under <target>/.benchmark/corpus/: one file is
 // used, several prompt a choice on a TTY (else error listing them), none points
 // the dev at generate-corpus. override short-circuits the search.
 func discoverCorpus(target, override string, in *os.File) (string, error) {
 	if override != "" {
 		return override, nil
 	}
-	dir := filepath.Join(target, ".validator", "corpus")
+	dir := filepath.Join(target, ".benchmark", "corpus")
 	matches, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {
 		return "", err
@@ -199,7 +199,7 @@ func init() {
 	f := rootCmd.Flags()
 	f.StringVar(&flagEvalLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
 	f.StringVar(&flagEvalTarget, "target", ".", "path to the target repo under test")
-	f.StringVar(&flagEvalCorpus, "corpus", "", "corpus YAML (default: auto-discover .validator/corpus/*.yaml)")
+	f.StringVar(&flagEvalCorpus, "corpus", "", "corpus YAML (default: auto-discover .benchmark/corpus/*.yaml)")
 	f.StringVar(&flagEvalBefore, "before", "", "baseline committish (default: auto-detect from git)")
 	f.StringVar(&flagEvalAfter, "after", "", "committish under test (default: auto-detect from git)")
 	f.IntVar(&flagEvalSamples, "samples", 1, "samples per environment (odd N; default 1)")

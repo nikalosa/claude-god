@@ -4,9 +4,9 @@
 # open-ended probes, alongside Numbers — report-only, never a gate. A plan probe
 # is comparative, so a Judge is built for the preference — run with --level l2:
 #
-#   claude-validator run --level l2 --corpus examples/corpus/plan-smoke.yaml \
+#   claude-benchmark run --level l2 --corpus examples/corpus/plan-smoke.yaml \
 #     --target <repo> --before <branch> --after <branch>
 probes:
   - id: add_check_kind_plan
     kind: plan
-    prompt: "Plan how to add a new check kind to claude-validator's DSL end to end — parsing, validation, the runner, and tests."
+    prompt: "Plan how to add a new check kind to claude-benchmark's DSL end to end — parsing, validation, the runner, and tests."

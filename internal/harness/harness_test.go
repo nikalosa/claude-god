@@ -10,11 +10,11 @@ import (
 )
 
 // TestHarness_Dogfood runs the full L1 harness against this repo on `main`.
-// Gated behind CLAUDE_VALIDATOR_DOGFOOD=1 because it shells out to a real
+// Gated behind CLAUDE_BENCHMARK_DOGFOOD=1 because it shells out to a real
 // `claude -p` invocation (costs money, takes seconds).
 func TestHarness_Dogfood(t *testing.T) {
-	if os.Getenv("CLAUDE_VALIDATOR_DOGFOOD") != "1" {
-		t.Skip("set CLAUDE_VALIDATOR_DOGFOOD=1 to run")
+	if os.Getenv("CLAUDE_BENCHMARK_DOGFOOD") != "1" {
+		t.Skip("set CLAUDE_BENCHMARK_DOGFOOD=1 to run")
 	}
 
 	target, err := os.Getwd()
@@ -35,7 +35,7 @@ func TestHarness_Dogfood(t *testing.T) {
 	res, err := Run(ctx, Opts{
 		TargetRepo:    target,
 		Branch:        "main",
-		Prompt:        "In one sentence, what is the purpose of claude-validator?",
+		Prompt:        "In one sentence, what is the purpose of claude-benchmark?",
 		NoMemSnapshot: true,
 	})
 	if err != nil {

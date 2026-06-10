@@ -1,8 +1,8 @@
-# Self-test corpus: probes the validator's own CLAUDE.md.
+# Self-test corpus: probes the benchmark's own CLAUDE.md.
 #
 # Calibrated 2026-05-29 — before-vs-before main↔main, N=3, 30 runs, 0 regressions,
 # all 6 rules stable PASS (3/3) on both envs. Noise floor: 0.
-# (Issue #7. Re-run with: claude-validator run --target . --corpus .validator/corpus/self.yaml
+# (Issue #7. Re-run with: claude-benchmark run --target . --corpus .benchmark/corpus/self.yaml
 #  --before main --after main --no-memory-snapshot --samples 3.)
 
 probes:
@@ -15,7 +15,7 @@ probes:
           - text_matches: "(?i)concise|terse|concision|brief"
 
   - id: project_identity
-    prompt: "In one sentence, what is claude-validator?"
+    prompt: "In one sentence, what is claude-benchmark?"
     rules:
       - id: mentions_ab_benchmark
         severity: critical
