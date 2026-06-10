@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -158,20 +159,60 @@ func invokeClaude(ctx context.Context, cwd, prompt, streamPath string) error {
 	defer out.Close()
 
 	// Runs are read-only (ADR-0006): grading reads the assistant text, so the
-	// model needs Read/Grep/Glob to inspect the env but nothing that mutates the
-	// tree, hits the network, or opens a browser. Bare-name disallows hold even
-	// under bypassPermissions; --disable-slash-commands drops skills, which are
-	// not part of the Environment under test.
+	// model may inspect the env but must not mutate the tree, hit the network, or
+	// open a browser. Edit/Write/WebFetch/Agent stay bare-name disallowed (which
+	// holds even under bypassPermissions). Bash is re-enabled so the model loads
+	// content the way a terminal does (cat/head/sed/grep slices, not whole-file
+	// Reads) and constrained to read-only by a PreToolUse hook — the only lever
+	// that survives bypassPermissions, where scoped Bash(...) rules do not.
+	// --disable-slash-commands drops skills, which are not part of the Environment.
+	settings, err := readOnlyBashSettings()
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
-		"--disallowedTools", "Agent", "Bash", "Edit", "Write", "WebFetch",
+		"--disallowedTools", "Agent", "Edit", "Write", "WebFetch",
+		"--settings", settings,
 		"--disable-slash-commands")
 	cmd.Dir = cwd
 	cmd.Stdout = out
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// readOnlyBashSettings returns an inline Claude Code settings JSON registering a
+// PreToolUse hook on Bash that shells back into this binary's hidden
+// __bash-read-guard subcommand. The guard blocks (exit 2) any command that is
+// not provably read-only. Passed via --settings, it overrides the worktree's own
+// settings (precedence 2) without editing the tree.
+func readOnlyBashSettings() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate self for bash guard hook: %w", err)
+	}
+	settings := map[string]any{
+		"hooks": map[string]any{
+			"PreToolUse": []any{map[string]any{
+				"matcher": "Bash",
+				"hooks": []any{map[string]any{
+					"type":    "command",
+					"command": shellQuote(exe) + " __bash-read-guard",
+				}},
+			}},
+		},
+	}
+	b, err := json.Marshal(settings)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func captureDiff(ctx context.Context, worktree, diffPath, diffStatPath string) error {

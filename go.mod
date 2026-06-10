@@ -1,11 +1,12 @@
 module github.com/nikalosa/claude-god
 
-go 1.24
+go 1.25.0
 
 require (
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sync v0.8.0
+	golang.org/x/sync v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
+	mvdan.cc/sh/v3 v3.13.1
 )
 
 require (
