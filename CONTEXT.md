@@ -67,7 +67,7 @@ _Avoid_: Prompt (bare), generation prompt.
 ### Grading & outcome
 
 **Run**:
-One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled N=3 per environment. A run is **read-only**: the model inspects the Environment with `Read/Grep/Glob` and with `Bash` constrained to read-only commands by a PreToolUse guard (so it slices files terminal-style instead of reading them whole), but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md), [ADR-0009](docs/adr/0009-read-only-bash-via-pretooluse-guard.md)) — the graded signal is the assistant *text*, never an artifact.
+One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled at an odd N per environment (default 1; raise to N≥3 for the majority-vote and **Disagreement** signals). A run is **read-only**: the model inspects the Environment with `Read/Grep/Glob` and with `Bash` constrained to read-only commands by a PreToolUse guard (so it slices files terminal-style instead of reading them whole), but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md), [ADR-0009](docs/adr/0009-read-only-bash-via-pretooluse-guard.md)) — the graded signal is the assistant *text*, never an artifact.
 
 **Regression**:
 A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After) — "what changed for the worse." Visible in the matrix and read by the dev; the validator does not gate, score, or count it.

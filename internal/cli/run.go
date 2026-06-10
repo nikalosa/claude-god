@@ -335,7 +335,7 @@ func init() {
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagBefore, "before", "validator/before", "branch holding the pre-restructure baseline")
 	f.StringVar(&flagAfter, "after", "validator/after", "branch holding the post-restructure config under test")
-	f.IntVar(&flagSamples, "samples", 3, "samples per environment (odd N; N=3 by default, adaptive N=5 deferred)")
+	f.IntVar(&flagSamples, "samples", 1, "samples per environment (odd N; default 1, adaptive N=5 deferred)")
 	f.IntVar(&flagConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")
 	f.StringVar(&flagDumpDir, "dump-dir", "", "write each probe's judged Before/After answers here (one Markdown file per probe)")

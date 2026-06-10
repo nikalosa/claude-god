@@ -202,7 +202,7 @@ func init() {
 	f.StringVar(&flagEvalCorpus, "corpus", "", "corpus YAML (default: auto-discover .validator/corpus/*.yaml)")
 	f.StringVar(&flagEvalBefore, "before", "", "baseline committish (default: auto-detect from git)")
 	f.StringVar(&flagEvalAfter, "after", "", "committish under test (default: auto-detect from git)")
-	f.IntVar(&flagEvalSamples, "samples", 3, "samples per environment (odd N)")
+	f.IntVar(&flagEvalSamples, "samples", 1, "samples per environment (odd N; default 1)")
 	f.IntVar(&flagEvalConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagEvalYes, "yes", false, "skip the spend-plan confirmation prompt")
 }
