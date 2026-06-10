@@ -1,6 +1,6 @@
-# claude-validator — PRD
+# claude-benchmark — PRD
 
-**Status:** Pre-v1. Rule-based recall shipped and dogfooded against the validator's own CLAUDE.md; open-ended and plan probes (preference-graded) shipped. Real execution deferred.
+**Status:** Pre-v1. Rule-based recall shipped and dogfooded against the benchmark's own CLAUDE.md; open-ended and plan probes (preference-graded) shipped. Real execution deferred.
 Glossary: [CONTEXT.md](../CONTEXT.md). Decisions: [docs/adr/](adr/). Work tracked in GitHub issues.
 
 > This PRD is the long-form of the [README](../README.md). Where they differ, the README and the ADRs win — this document is kept in sync with them, not the reverse.
@@ -21,7 +21,7 @@ PAM (a ~700-line `CLAUDE.md` plus ~15 rules files) is the motivating case, but t
 
 **The bet:** a leaner, better-referenced environment makes Claude faster and cheaper *while still honoring the rules.*
 
-**The proxy:** if Claude can correctly answer "how should I wire a new service and its infrastructure?", it will wire it correctly. So the validator mostly **asks**, and only rarely **executes** — questions are cheap, safe, parallelizable, and graded on the assistant's *text*.
+**The proxy:** if Claude can correctly answer "how should I wire a new service and its infrastructure?", it will wire it correctly. So the benchmark mostly **asks**, and only rarely **executes** — questions are cheap, safe, parallelizable, and graded on the assistant's *text*.
 
 ## What the report measures
 
@@ -32,7 +32,7 @@ Every probe runs in both environments — the messy **Before** and the restructu
   - **Rules still honored** — rule-based probes graded right/wrong per environment. A Before-PASS → After-FAIL flip is a **Regression** ("what you compromised").
   - **Answers and plans read better** — open-ended and plan probes compared head-to-head by the **Judge** across conciseness, exhaustiveness, directness.
 
-**The win is efficiency up with quality held or improved.** The output is a **report a human reads** — Numbers, rule answers side by side, design/plan answers compared — and the developer decides. **The validator never gates.** A non-zero exit on a `critical` Regression survives as a harmless optional bit for anyone wiring CI later — not the point. See [ADR-0002](adr/0002-report-not-gate-and-preference-judging.md).
+**The win is efficiency up with quality held or improved.** The output is a **report a human reads** — Numbers, rule answers side by side, design/plan answers compared — and the developer decides. **The benchmark never gates.** A non-zero exit on a `critical` Regression survives as a harmless optional bit for anyone wiring CI later — not the point. See [ADR-0002](adr/0002-report-not-gate-and-preference-judging.md).
 
 ## Probes — three streams
 
@@ -60,7 +60,7 @@ A **Probe** is one prompt plus how its response is graded. Three kinds, built in
 
 ## Corpus and the Generator
 
-- A **Corpus** is the per-Target set of probes — the dataset run Before and After. The Target owns its real corpus (under `<target>/.validator/`); the tool ships an example corpus only.
+- A **Corpus** is the per-Target set of probes — the dataset run Before and After. The Target owns its real corpus (under `<target>/.benchmark/`); the tool ships an example corpus only.
 - The **Generator** is a human-backstopped **drafting** skill, not unattended auto-generation. It runs `claude -p` against the **Before** branch over hand-selected source text (CLAUDE.md, rules, docs, pasted text) and drafts the three streams — rule-based from the docs in isolation, open-ended and plan probes codebase-aware. The dev reviews and edits conversationally, then **freezes** the result onto Before. Generating from Before (not the suspect After) is what keeps a dropped rule detectable — the dropped line is still there to write a probe from ([ADR-0004](adr/0004-corpus-generation-isolated-from-before-drafting.md)).
 - A **Steering config** (selected-doc globs + emphasis/skip notes + proposed severities) is checked in beside the frozen corpus so generation is reproducible; regeneration is a reviewed, additive diff, never an in-place rewrite.
 
@@ -89,20 +89,20 @@ harness, parser, dsl, and aggregator are testable with no live Claude — replay
 
 ## Testing
 
-Tests verify **observable behavior** given fixed input, never implementation details — the validator's credibility rests on determinism, so its own tests are deterministic. Parser: golden-file tests over recorded stream-json fixtures (flat runs, sub-agent recursion, errors, mid-stream `usage`). DSL: pure unit tests over every primitive plus realistic compositions. Aggregator: synthetic run records — all agree, critical-disagree → expand, non-critical-disagree → flaky, median odd vs even, majority-vote ties. Report: snapshot tests. Harness: one integration smoke against a tiny committed example repo, gated behind an env var. Plus the self-test: dogfood the rule-based stream against the validator's own lean CLAUDE.md — all checks should pass.
+Tests verify **observable behavior** given fixed input, never implementation details — the benchmark's credibility rests on determinism, so its own tests are deterministic. Parser: golden-file tests over recorded stream-json fixtures (flat runs, sub-agent recursion, errors, mid-stream `usage`). DSL: pure unit tests over every primitive plus realistic compositions. Aggregator: synthetic run records — all agree, critical-disagree → expand, non-critical-disagree → flaky, median odd vs even, majority-vote ties. Report: snapshot tests. Harness: one integration smoke against a tiny committed example repo, gated behind an env var. Plus the self-test: dogfood the rule-based stream against the benchmark's own lean CLAUDE.md — all checks should pass.
 
 ## Out of scope (v1)
 
 - **Real execution during runs.** Tasks are designed never to need live docker/postgres/network; the grader checks intent, not outcome. The read-only profile is scoped to the answer/plan modes; real execution will need a write-enabled profile when it lands.
 - **Soft style rules in the corpus** (terseness, no over-explanation). Real wins, but noisier to grade and the system prompt already biases terse — defer until grading is proven stable.
 - **Unattended corpus auto-generation.** The Generator is a *drafting* aid with a human in the loop, deliberately — an LLM reading a bloated Environment is blind to the same buried rules the bloat hides.
-- **Automated restructuring driven by results.** Future skill, once the validator is trusted.
+- **Automated restructuring driven by results.** Future skill, once the benchmark is trusted.
 - **Non-Claude-Code agents** (Cursor, Cline, Aider). Possible later; not the v1 target.
 - **CI dashboard / web UI.** Markdown + JSON only.
 
 ## Repository structure
 
-`claude-validator` lives in its own sibling repo (`~/Desktop/claude-god/`), separate from any project it validates — developing it inside a bloated target would degrade every dev session with the exact problem the tool exists to detect. Consumer projects host only their own corpus + config under `<repo>/.validator/`; the CLI's `--target` / `--corpus` keep the boundary explicit. The validator's own `CLAUDE.md` is intentionally lean and self-validated against its own corpus, as a demonstration of the methodology.
+`claude-benchmark` lives in its own sibling repo (`~/Desktop/claude-god/`), separate from any project it benchmarks — developing it inside a bloated target would degrade every dev session with the exact problem the tool exists to detect. Consumer projects host only their own corpus + config under `<repo>/.benchmark/`; the CLI's `--target` / `--corpus` keep the boundary explicit. The benchmark's own `CLAUDE.md` is intentionally lean and self-benchmarked against its own corpus, as a demonstration of the methodology.
 
 ## Eventual scope (beyond v1)
 

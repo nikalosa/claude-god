@@ -50,7 +50,7 @@ func (claudeBackend) Ask(ctx context.Context, prompt string) (string, error) {
 }
 
 func askOnce(ctx context.Context, prompt string) (string, error) {
-	dir, err := os.MkdirTemp("", "claude-validator-judge-*")
+	dir, err := os.MkdirTemp("", "claude-benchmark-judge-*")
 	if err != nil {
 		return "", fmt.Errorf("judge: temp dir: %w", err)
 	}

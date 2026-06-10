@@ -1,10 +1,10 @@
-// Package snapshot pins a target repo's Environment to a validator/<name>
+// Package snapshot pins a target repo's Environment to a benchmark/<name>
 // branch the run/calibrate commands consume, so the Before/After comparison is
 // reproducible and the developer is not hand-managing git branches.
 //
 // The branch captures the committed HEAD tree (CLAUDE.md root+nested, Claude
 // rules, docs) plus, by default, the project memory copied into
-// .validator/memory-snapshot (where the harness's memory swap reads it). It is
+// .benchmark/memory-snapshot (where the harness's memory swap reads it). It is
 // built in a throwaway worktree so the developer's working tree is untouched.
 // Commit your Environment edits before snapshotting: the snapshot reflects HEAD.
 package snapshot
@@ -29,7 +29,7 @@ type Opts struct {
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// Create captures the target's Environment as the branch validator/<name> and
+// Create captures the target's Environment as the branch benchmark/<name> and
 // returns the branch name. Re-snapshotting overwrites the branch.
 func Create(ctx context.Context, opts Opts) (string, error) {
 	if opts.Name == "" {
@@ -45,7 +45,7 @@ func Create(ctx context.Context, opts Opts) (string, error) {
 	if _, err := git(ctx, abs, "rev-parse", "--git-dir"); err != nil {
 		return "", fmt.Errorf("%s is not a git repository", abs)
 	}
-	branch := "validator/" + opts.Name
+	branch := "benchmark/" + opts.Name
 
 	if !opts.IncludeMemory {
 		return branch, pointBranch(ctx, abs, branch, "HEAD")
@@ -70,7 +70,7 @@ func Create(ctx context.Context, opts Opts) (string, error) {
 // snapshotWithMemory builds the snapshot commit in a throwaway detached worktree
 // (HEAD tree + injected memory), then points the branch at it.
 func snapshotWithMemory(ctx context.Context, repo, branch, name, memDir string) error {
-	tmp, err := os.MkdirTemp("", "claude-validator-snapshot-*")
+	tmp, err := os.MkdirTemp("", "claude-benchmark-snapshot-*")
 	if err != nil {
 		return err
 	}
@@ -82,15 +82,15 @@ func snapshotWithMemory(ctx context.Context, repo, branch, name, memDir string) 
 	}
 	defer func() { _, _ = git(context.Background(), repo, "worktree", "remove", "--force", wt) }()
 
-	dst := filepath.Join(wt, ".validator", "memory-snapshot")
+	dst := filepath.Join(wt, ".benchmark", "memory-snapshot")
 	if err := copyDir(memDir, dst); err != nil {
 		return fmt.Errorf("copy memory: %w", err)
 	}
-	// -f so memory lands even if the target .gitignores .validator.
-	if _, err := git(ctx, wt, "add", "-f", ".validator/memory-snapshot"); err != nil {
+	// -f so memory lands even if the target .gitignores .benchmark.
+	if _, err := git(ctx, wt, "add", "-f", ".benchmark/memory-snapshot"); err != nil {
 		return err
 	}
-	if _, err := git(ctx, wt, "commit", "-m", "validator snapshot "+name+": pin environment + memory"); err != nil {
+	if _, err := git(ctx, wt, "commit", "-m", "benchmark snapshot "+name+": pin environment + memory"); err != nil {
 		return fmt.Errorf("commit snapshot: %w", err)
 	}
 	commit, err := git(ctx, wt, "rev-parse", "HEAD")
@@ -125,8 +125,8 @@ func MemoryDir(targetRepo string) (string, error) {
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=claude-validator", "GIT_AUTHOR_EMAIL=validator@localhost",
-		"GIT_COMMITTER_NAME=claude-validator", "GIT_COMMITTER_EMAIL=validator@localhost",
+		"GIT_AUTHOR_NAME=claude-benchmark", "GIT_AUTHOR_EMAIL=benchmark@localhost",
+		"GIT_COMMITTER_NAME=claude-benchmark", "GIT_COMMITTER_EMAIL=benchmark@localhost",
 	)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out

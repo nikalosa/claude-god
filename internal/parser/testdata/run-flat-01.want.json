@@ -35,5 +35,6 @@
     }
   },
   "peak_context_tokens": 32852,
+  "base_context_tokens": 32852,
   "tool_calls": []
 }

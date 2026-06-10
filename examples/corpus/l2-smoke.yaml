@@ -2,11 +2,11 @@
 # open-ended architectural answer into per-fact present/absent, scored 0-100 and
 # thresholded by pass_score. Requires --level l2 (a Judge is built):
 #
-#   claude-validator run --level l2 --corpus examples/corpus/l2-smoke.yaml \
+#   claude-benchmark run --level l2 --corpus examples/corpus/l2-smoke.yaml \
 #     --target <repo> --before <branch> --after <branch>
 probes:
   - id: architecture_design
-    prompt: "Describe how claude-validator compares two Claude environments, end to end."
+    prompt: "Describe how claude-benchmark compares two Claude environments, end to end."
     rules:
       - id: explains_ab_pipeline
         severity: high
@@ -22,4 +22,4 @@ probes:
   # (preference, both orderings). Report-only — never a pass/fail or a gate.
   - id: design_tradeoffs
     kind: open_ended
-    prompt: "What are the main design tradeoffs in how claude-validator grades probes?"
+    prompt: "What are the main design tradeoffs in how claude-benchmark grades probes?"

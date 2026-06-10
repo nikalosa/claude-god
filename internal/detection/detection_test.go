@@ -101,10 +101,10 @@ func TestDetection_Pure(t *testing.T) {
 }
 
 // TestDetection_Live builds a real degraded Environment and runs claude -p
-// against it. Gated behind CLAUDE_VALIDATOR_DOGFOOD=1 (live, costs money).
+// against it. Gated behind CLAUDE_BENCHMARK_DOGFOOD=1 (live, costs money).
 func TestDetection_Live(t *testing.T) {
-	if os.Getenv("CLAUDE_VALIDATOR_DOGFOOD") != "1" {
-		t.Skip("set CLAUDE_VALIDATOR_DOGFOOD=1 to run")
+	if os.Getenv("CLAUDE_BENCHMARK_DOGFOOD") != "1" {
+		t.Skip("set CLAUDE_BENCHMARK_DOGFOOD=1 to run")
 	}
 
 	repo := t.TempDir()

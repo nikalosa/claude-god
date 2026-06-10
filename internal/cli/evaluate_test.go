@@ -35,7 +35,7 @@ func TestDiscoverCorpus(t *testing.T) {
 
 	t.Run("single is used", func(t *testing.T) {
 		dir := t.TempDir()
-		cdir := filepath.Join(dir, ".validator", "corpus")
+		cdir := filepath.Join(dir, ".benchmark", "corpus")
 		if err := os.MkdirAll(cdir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestDiscoverCorpus(t *testing.T) {
 
 	t.Run("many non-TTY errors listing them", func(t *testing.T) {
 		dir := t.TempDir()
-		cdir := filepath.Join(dir, ".validator", "corpus")
+		cdir := filepath.Join(dir, ".benchmark", "corpus")
 		os.MkdirAll(cdir, 0o755)
 		os.WriteFile(filepath.Join(cdir, "a.yaml"), []byte("probes: []\n"), 0o644)
 		os.WriteFile(filepath.Join(cdir, "b.yaml"), []byte("probes: []\n"), 0o644)

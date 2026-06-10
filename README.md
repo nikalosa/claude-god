@@ -1,4 +1,4 @@
-# claude-validator
+# claude-benchmark
 
 A/B-test two Claude Code context configurations of a repo — the bloated **Before** and
 the restructured **After** — and read what got faster, cheaper, and tighter **without
@@ -14,7 +14,7 @@ Claude relied on. Token reduction alone is a fake win — trivially gamed by del
 
 **The bet:** a leaner, better-referenced environment makes Claude faster and cheaper *while
 still honoring your rules*. **The proxy:** if Claude can correctly answer "how should I wire
-a new service and its infrastructure?", we bet it will wire it correctly — so the validator
+a new service and its infrastructure?", we bet it will wire it correctly — so the benchmark
 mostly *asks*, rarely executes.
 
 A drafting helper (the **Generator**) produces a **Corpus** of probes in three independent
@@ -38,7 +38,7 @@ measures two things:
 
 The win is **efficiency up with quality held or improved**. The output is a **report a human
 reads** — Numbers, rule answers side by side, design/plan answers compared — and you decide.
-The validator never gates.
+The benchmark never gates.
 
 Full design: [docs/PRD.md](docs/PRD.md). Glossary: [CONTEXT.md](CONTEXT.md). Key decisions:
 [docs/adr/](docs/adr/).
@@ -74,7 +74,7 @@ One command benchmarks the current repo end-to-end — it auto-discovers the cor
 
 ```sh
 go build ./...
-go run ./cmd/claude-validator            # bare: auto-detect everything, then confirm
+go run ./cmd/claude-benchmark            # bare: auto-detect everything, then confirm
 ```
 
 **Before/After** default from git state — a dirty tree compares `HEAD` vs the working tree
@@ -86,7 +86,7 @@ prompt with `--yes`. The `run`, `snapshot`, and `calibrate` subcommands remain f
 ## Layout
 
 ```
-cmd/claude-validator/   CLI entrypoint (thin; delegates to internal/cli)
+cmd/claude-benchmark/   CLI entrypoint (thin; delegates to internal/cli)
 internal/
   cli/          cobra command tree (bare benchmark + run/calibrate/snapshot)
   autodetect/   resolve Before/After committishes from git state  (ADR-0008)

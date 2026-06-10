@@ -26,7 +26,7 @@ func DumpAnswers(dir, beforeRef, afterRef string, probes []dsl.Probe, before, af
 	}
 
 	var idx strings.Builder
-	fmt.Fprintln(&idx, "# claude-validator answer dump")
+	fmt.Fprintln(&idx, "# claude-benchmark answer dump")
 	fmt.Fprintln(&idx)
 	fmt.Fprintf(&idx, "Before = `%s` · After = `%s`. Sample 1 per probe.\n", beforeRef, afterRef)
 	fmt.Fprintln(&idx)

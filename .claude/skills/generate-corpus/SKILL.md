@@ -1,11 +1,11 @@
 ---
 name: generate-corpus
-description: Drafts a claude-validator corpus — probes and how they're graded — from a project's Before-branch context, in three independent streams run in parallel. Rule-based probes collect the important, easily-dropped rules from hand-selected docs (one subagent per doc, that doc's text only — no codebase, no general-knowledge questions); open-ended system/design probes and plan probes are drafted from the whole project. You draft; the dev reviews and finalizes. Use when authoring or extending a validator corpus, generating probes from a project's docs, or when the user mentions corpus generation or a steering config.
+description: Drafts a claude-benchmark corpus — probes and how they're graded — from a project's Before-branch context, in three independent streams run in parallel. Rule-based probes collect the important, easily-dropped rules from hand-selected docs (one subagent per doc, that doc's text only — no codebase, no general-knowledge questions); open-ended system/design probes and plan probes are drafted from the whole project. You draft; the dev reviews and finalizes. Use when authoring or extending a benchmark corpus, generating probes from a project's docs, or when the user mentions corpus generation or a steering config.
 ---
 
-# Generate a validator corpus
+# Generate a benchmark corpus
 
-Draft a frozen **corpus** for `claude-validator` from a project's **Before** context.
+Draft a frozen **corpus** for `claude-benchmark` from a project's **Before** context.
 You draft; the dev reviews, edits, and finalizes — never an unreviewed author.
 
 The corpus has three kinds of probe, generated as three independent streams. There is no
@@ -34,13 +34,13 @@ doc is dropped by the dev at review.
   `result` field. Use the `claude -p` CLI for every generation call — not a direct API SDK,
   not an agent-orchestration harness.
 - **Severity proposed → dev-confirmed.** Severity (`critical | high | medium`) is the dev's
-  reading priority, not a gate — the validator never gates. Confirmed by the dev so the
+  reading priority, not a gate — the benchmark never gates. Confirmed by the dev so the
   report sorts right.
 - **Implementation probes are out of scope.** Probes are **Ask** or **Plan** mode only.
 
 ## Workflow
 
-1. **Inputs.** Get the Before ref (e.g. `validator/before` from `claude-validator snapshot`)
+1. **Inputs.** Get the Before ref (e.g. `benchmark/before` from `claude-benchmark snapshot`)
    and the **steering config** ([steering-config.md](references/steering-config.md)). If none
    exists, draft one with the dev: source globs + emphasis/skip notes + proposed severities.
 2. **Generate — three independent streams** (run them in parallel; prompts in
@@ -54,14 +54,14 @@ doc is dropped by the dev at review.
      is later asked for a step-by-step plan, not execution).
 3. **Review + finalize.** Show the dev all three streams grouped, severities flagged for
    confirmation. The dev edits conversationally and drops any rule-based probe answerable
-   *without* its doc. On confirm, write `.validator/corpus/<name>.yaml` and the steering
-   config to `.validator/steering.yaml`, and commit both onto Before — only when the dev says
+   *without* its doc. On confirm, write `.benchmark/corpus/<name>.yaml` and the steering
+   config to `.benchmark/steering.yaml`, and commit both onto Before — only when the dev says
    so. Regeneration **appends** new probes; never rewrites the frozen set.
 
 ## Output shape
 
-Match the corpus YAML the validator already loads — read an existing corpus under
-`.validator/corpus/` (or a shipped example) before writing, don't reinvent:
+Match the corpus YAML the benchmark already loads — read an existing corpus under
+`.benchmark/corpus/` (or a shipped example) before writing, don't reinvent:
 
 - `text_matches` — hard tokens (regex over the answer).
 - `judge_rubric` (`facts` + `pass_score`) — prose graded by the judge against listed facts.
@@ -75,7 +75,7 @@ Match the corpus YAML the validator already loads — read an existing corpus un
 After freezing, the dev measures the noise floor (live, costs money):
 
 ```sh
-claude-validator calibrate --target <repo> --corpus .validator/corpus/<name>.yaml \
+claude-benchmark calibrate --target <repo> --corpus .benchmark/corpus/<name>.yaml \
   --branch <before> --no-memory-snapshot
 ```
 

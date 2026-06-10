@@ -13,7 +13,7 @@ So `Bash` is re-enabled, constrained to **read-only** by a `PreToolUse` hook:
 --permission-mode bypassPermissions  --disable-slash-commands
 ```
 
-ADR-0006 rejected scoping Bash because *permission rules* (`Bash(cat:*)`) are not enforced under `bypassPermissions`. A `PreToolUse` hook is a different lever: it fires regardless of permission mode and a hook that exits non-zero **blocks the call before permission rules are evaluated**, so it holds under bypass — the property the scoped-rule approach lacked. The hook is the validator binary's hidden `__bash-read-guard` subcommand (`internal/cli/bashguard.go`); the classifier is `internal/bashguard`. Wiring it via `--settings` (precedence 2) overrides the worktree's own settings without editing the tree under test.
+ADR-0006 rejected scoping Bash because *permission rules* (`Bash(cat:*)`) are not enforced under `bypassPermissions`. A `PreToolUse` hook is a different lever: it fires regardless of permission mode and a hook that exits non-zero **blocks the call before permission rules are evaluated**, so it holds under bypass — the property the scoped-rule approach lacked. The hook is the benchmark binary's hidden `__bash-read-guard` subcommand (`internal/cli/bashguard.go`); the classifier is `internal/bashguard`. Wiring it via `--settings` (precedence 2) overrides the worktree's own settings without editing the tree under test.
 
 ## Threat model: cooperative model, not a sandbox
 

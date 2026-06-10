@@ -24,8 +24,17 @@ type RunRecord struct {
 	// PeakContextTokens is the high-water mark of resident context: the max over
 	// main-session assistant turns of (input + cache_creation + cache_read). It is
 	// bounded by the model's window and matches the Claude Code status-line figure,
-	// unlike the cumulative TotalInputTokens which sums every turn's input.
+	// unlike the cumulative TotalInputTokens which sums every turn's input. Peak
+	// grows with exploration, so it is run-to-run noisy; prefer BaseContextTokens
+	// for the config signal.
 	PeakContextTokens int `json:"peak_context_tokens"`
+
+	// BaseContextTokens is the resident context at the first main-session assistant
+	// turn (input + cache_creation + cache_read), before any tool exploration. That
+	// prompt is system + tools + CLAUDE.md + Claude rules + memory + the probe — the
+	// pure cost of the Environment under test. It is deterministic (zero run-to-run
+	// variance), so it is the clean A/B config metric where peak is exploration-noisy.
+	BaseContextTokens int `json:"base_context_tokens"`
 
 	// ToolCalls is the ordered list of top-level tool invocations. Sub-agent
 	// internal calls are excluded (see the assistant case in Parse); empty in
@@ -86,6 +95,12 @@ func (r *RunRecord) TotalInputTokens() int {
 // ContextWindowTokens is the peak resident context window (see PeakContextTokens).
 func (r *RunRecord) ContextWindowTokens() int {
 	return r.PeakContextTokens
+}
+
+// BaseContextWindowTokens is the turn-1 (config-only) resident context window —
+// the deterministic A/B metric (see BaseContextTokens).
+func (r *RunRecord) BaseContextWindowTokens() int {
+	return r.BaseContextTokens
 }
 
 // TotalOutputTokens returns session-wide output tokens summed across all models,
@@ -165,9 +180,13 @@ func Parse(r io.Reader) (*RunRecord, error) {
 				continue
 			}
 			// message.usage input side is the real prompt size for that turn (only
-			// output_tokens is a mid-stream snapshot); the max over turns is the peak
-			// resident window.
-			if resident := am.Message.Usage.InputTokens + am.Message.Usage.CacheCreationInputTokens + am.Message.Usage.CacheReadInputTokens; resident > rec.PeakContextTokens {
+			// output_tokens is a mid-stream snapshot); the first turn is the base
+			// (config-only) context and the max over turns is the peak resident window.
+			resident := am.Message.Usage.InputTokens + am.Message.Usage.CacheCreationInputTokens + am.Message.Usage.CacheReadInputTokens
+			if rec.BaseContextTokens == 0 {
+				rec.BaseContextTokens = resident
+			}
+			if resident > rec.PeakContextTokens {
 				rec.PeakContextTokens = resident
 			}
 			for _, b := range am.Message.Content {

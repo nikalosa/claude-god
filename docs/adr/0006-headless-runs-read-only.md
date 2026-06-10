@@ -2,7 +2,7 @@
 
 **Status:** accepted — **amended by [ADR-0009](0009-read-only-bash-via-pretooluse-guard.md): `Bash` is re-enabled, constrained to read-only by a PreToolUse guard** (so the model loads content terminal-style via slices, not whole-file `Read`s). The "Scope Bash to read-only — Rejected" option below was reopened: it failed via *permission rules* under `bypassPermissions`, but a PreToolUse hook is a different lever that holds under bypass. Everything else here stands.
 
-The corpus design already forbids real-infrastructure side effects ([PRD](../PRD.md) — grade *intent*, not *outcome*). Running the validator against PAM exposed a leak: an L2 architectural probe triggered a project skill that wrote HTML and opened it in the dev's browser. The run produced a side effect, spent tokens/tool-calls on it, and the artifact was ungradeable (it never lands in the stream as assistant text).
+The corpus design already forbids real-infrastructure side effects ([PRD](../PRD.md) — grade *intent*, not *outcome*). Running the benchmark against PAM exposed a leak: an L2 architectural probe triggered a project skill that wrote HTML and opened it in the dev's browser. The run produced a side effect, spent tokens/tool-calls on it, and the artifact was ungradeable (it never lands in the stream as assistant text).
 
 So the harness now restricts every `claude -p` run to a read-only toolset and disables skills:
 

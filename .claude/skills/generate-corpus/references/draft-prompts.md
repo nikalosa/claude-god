@@ -7,7 +7,7 @@ assistant text from the JSON envelope's `result` field.
 
 Run once **per selected doc**, that doc's text pasted in, in an empty dir (no codebase):
 
-> You are drafting recall and convention probes for a behavioral validator. From the SOURCE
+> You are drafting recall and convention probes for a behavioral benchmark. From the SOURCE
 > DOC below, extract the specific, buried, easily-dropped Rules a maintainer would want to
 > survive a refactor — conventions, invariants, required procedures (e.g. "amounts are
 > string-typed", "run the migration script before deploy"). For each, emit: a direct

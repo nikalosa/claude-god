@@ -120,7 +120,7 @@ func TestRenderCalibration(t *testing.T) {
 	}
 	md := RenderCalibration(verdicts, nil, 1)
 
-	if !strings.Contains(md, "# claude-validator calibration") {
+	if !strings.Contains(md, "# claude-benchmark calibration") {
 		t.Errorf("missing calibration title:\n%s", md)
 	}
 	if !strings.Contains(md, "Noise floor: 1 of 2") {

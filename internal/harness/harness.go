@@ -47,7 +47,7 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 		return nil, errors.New("Prompt required")
 	}
 
-	artifacts, err := os.MkdirTemp("", "claude-validator-run-*")
+	artifacts, err := os.MkdirTemp("", "claude-benchmark-run-*")
 	if err != nil {
 		return nil, fmt.Errorf("artifacts dir: %w", err)
 	}
@@ -122,7 +122,7 @@ func memorySource(worktree string, opts Opts) string {
 	if opts.NoMemSnapshot {
 		return ""
 	}
-	return filepath.Join(worktree, ".validator", "memory-snapshot")
+	return filepath.Join(worktree, ".benchmark", "memory-snapshot")
 }
 
 func swapMemory(worktree, src string) (restore func(), err error) {

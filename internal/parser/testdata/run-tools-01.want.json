@@ -35,6 +35,7 @@
     }
   },
   "peak_context_tokens": 50000,
+  "base_context_tokens": 20000,
   "tool_calls": [
     { "name": "Grep" },
     { "name": "Read" },

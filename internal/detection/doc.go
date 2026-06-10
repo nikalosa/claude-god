@@ -1,4 +1,4 @@
-// Package detection holds the end-to-end proof that the validator DETECTS a
+// Package detection holds the end-to-end proof that the benchmark DETECTS a
 // genuinely dropped rule — closing the credibility gap that it had only ever
 // been run Before-vs-identical-Before (correctly reporting "nothing changed").
 //
