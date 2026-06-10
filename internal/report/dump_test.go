@@ -14,7 +14,9 @@ import (
 
 func rec(text string) *parser.RunRecord {
 	return &parser.RunRecord{FinalText: text, Model: "m", NumTurns: 2, TotalCost: 0.5,
-		ModelUsage: map[string]parser.ModelUsage{"m": {InputTokens: 100, OutputTokens: 20}}}
+		Timing:            parser.Timing{DurationMs: 90000},
+		PeakContextTokens: 40000,
+		ModelUsage:        map[string]parser.ModelUsage{"m": {InputTokens: 100, OutputTokens: 20}}}
 }
 
 // TestDumpAnswers_WritesJudgedPair: a comparative probe writes its verdict plus
@@ -39,7 +41,7 @@ func TestDumpAnswers_WritesJudgedPair(t *testing.T) {
 	}
 
 	planDoc := readFile(t, filepath.Join(dir, "01-plan_thing.md"))
-	for _, want := range []string{"# plan_thing", "BEFORE-PLAN", "AFTER-PLAN", "After reads better", "after is clearer", "`staging`", "`slim`", "step-by-step plan"} {
+	for _, want := range []string{"# plan_thing", "BEFORE-PLAN", "AFTER-PLAN", "After reads better", "after is clearer", "`staging`", "`slim`", "step-by-step plan", "## Comparison", "Context window", "40.0k", "Time", "1m30s"} {
 		if !strings.Contains(planDoc, want) {
 			t.Errorf("plan doc missing %q\n%s", want, planDoc)
 		}
@@ -57,7 +59,7 @@ func TestDumpAnswers_WritesJudgedPair(t *testing.T) {
 	}
 
 	idx := readFile(t, filepath.Join(dir, "index.md"))
-	for _, want := range []string{"plan_thing", "rule_thing", "01-plan_thing.md", "02-rule_thing.md", "After reads better"} {
+	for _, want := range []string{"plan_thing", "rule_thing", "01-plan_thing.md", "02-rule_thing.md", "After reads better", "Context window (B→A)", "40.0k → 40.0k"} {
 		if !strings.Contains(idx, want) {
 			t.Errorf("index missing %q\n%s", want, idx)
 		}

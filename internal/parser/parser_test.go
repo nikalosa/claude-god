@@ -76,4 +76,10 @@ func TestParse_Tools(t *testing.T) {
 	if got.TotalOutputTokens() != 1550 {
 		t.Errorf("TotalOutputTokens = %d, want 1550", got.TotalOutputTokens())
 	}
+
+	// Peak resident context is the max over MAIN-session turns (20k, 50k, 45k);
+	// the sub-agent turn's 999999 (parent_tool_use_id set) is excluded.
+	if got.ContextWindowTokens() != 50000 {
+		t.Errorf("ContextWindowTokens = %d, want 50000 (max main turn, sub-agent excluded)", got.ContextWindowTokens())
+	}
 }

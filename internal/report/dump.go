@@ -15,10 +15,11 @@ import (
 var dumpSlug = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // DumpAnswers writes the judged Before/After answer pair for each probe to dir,
-// one Markdown file per probe (NN-<id>.md) plus an index.md, so a human can read
-// the two answers the judge actually compared (sample 1) side by side. prefs is
-// indexed by probe (nil for a rule-based probe). It is report-only: the caller
-// treats a write error as a warning so a failed dump never discards a run.
+// one Markdown file per probe (NN-<id>.md) plus an index.md, so a human can
+// compare the two Environments on context window and time and read the plans the
+// judge actually compared (sample 1). prefs is indexed by probe (nil for a
+// rule-based probe). It is report-only: the caller treats a write error as a
+// warning so a failed dump never discards a run.
 func DumpAnswers(dir, beforeRef, afterRef string, probes []dsl.Probe, before, after [][]*parser.RunRecord, prefs []*runner.PreferenceResult) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -27,10 +28,12 @@ func DumpAnswers(dir, beforeRef, afterRef string, probes []dsl.Probe, before, af
 	var idx strings.Builder
 	fmt.Fprintln(&idx, "# claude-validator answer dump")
 	fmt.Fprintln(&idx)
-	fmt.Fprintf(&idx, "Before = `%s` · After = `%s`. Each file holds the sample-1 pair the judge compared.\n", beforeRef, afterRef)
+	fmt.Fprintf(&idx, "Before = `%s` · After = `%s`. Sample 1 per probe.\n", beforeRef, afterRef)
 	fmt.Fprintln(&idx)
-	fmt.Fprintln(&idx, "| # | Probe | Kind | Verdict | File |")
-	fmt.Fprintln(&idx, "|---|---|---|---|---|")
+	fmt.Fprintln(&idx, "Context window = peak resident tokens (high-water mark across turns, ≈ the Claude Code status line). Time = wall-clock per run. Δ is After vs Before.")
+	fmt.Fprintln(&idx)
+	fmt.Fprintln(&idx, "| # | Probe | Context window (B→A) | Time (B→A) | Verdict | File |")
+	fmt.Fprintln(&idx, "|---|---|---|---|---|---|")
 
 	for pi, probe := range probes {
 		name := fmt.Sprintf("%02d-%s.md", pi+1, dumpSlug.ReplaceAllString(probe.ID, "-"))
@@ -38,10 +41,13 @@ func DumpAnswers(dir, beforeRef, afterRef string, probes []dsl.Probe, before, af
 		if pi < len(prefs) {
 			pref = prefs[pi]
 		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(probeDoc(probe, sampleOne(before, pi), sampleOne(after, pi), pref, beforeRef, afterRef)), 0o644); err != nil {
+		b := sampleOne(before, pi)
+		a := sampleOne(after, pi)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(probeDoc(probe, b, a, pref, beforeRef, afterRef)), 0o644); err != nil {
 			return err
 		}
-		fmt.Fprintf(&idx, "| %d | %s | %s | %s | [%s](%s) |\n", pi+1, probe.ID, probe.Kind, verdictLabel(pref), name, name)
+		fmt.Fprintf(&idx, "| %d | %s | %s | %s | %s | [%s](%s) |\n",
+			pi+1, probe.ID, ctxCell(b, a), timeCell(b, a), verdictLabel(pref), name, name)
 	}
 	fmt.Fprintln(&idx)
 
@@ -65,6 +71,8 @@ func probeDoc(probe dsl.Probe, before, after *parser.RunRecord, pref *runner.Pre
 	}
 	fmt.Fprintf(&b, "**Prompt:** %s\n\n", probe.Prompt)
 
+	fmt.Fprintf(&b, "## Comparison\n\n%s\n", comparison(before, after, beforeRef, afterRef))
+
 	if pref != nil {
 		fmt.Fprintf(&b, "**Verdict:** %s (concise: %s, exhaustive: %s, direct: %s)\n\n",
 			pref.Outcome.Label(), prefShort(pref.Concise), prefShort(pref.Exhaustive), prefShort(pref.Direct))
@@ -81,12 +89,49 @@ func probeDoc(probe dsl.Probe, before, after *parser.RunRecord, pref *runner.Pre
 	return b.String()
 }
 
+// comparison is the heart of the dump: context window and time side by side, the
+// two metrics the A/B is for. Output length is intentionally not headlined.
+func comparison(before, after *parser.RunRecord, beforeRef, afterRef string) string {
+	if before == nil || after == nil {
+		return "_Comparison unavailable — a run record is missing._\n"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "| Metric | Before `%s` | After `%s` | Δ |\n", beforeRef, afterRef)
+	fmt.Fprintln(&b, "|---|---|---|---|")
+	fmt.Fprintf(&b, "| Context window | %s | %s | %s |\n",
+		tokK(before.ContextWindowTokens()), tokK(after.ContextWindowTokens()),
+		pctDelta(before.ContextWindowTokens(), after.ContextWindowTokens()))
+	fmt.Fprintf(&b, "| Time | %s | %s | %s |\n",
+		dur(before.Timing.DurationMs), dur(after.Timing.DurationMs),
+		pctDelta(before.Timing.DurationMs, after.Timing.DurationMs))
+	fmt.Fprintf(&b, "| Turns | %d | %d | %s |\n", before.NumTurns, after.NumTurns, intDelta(before.NumTurns, after.NumTurns))
+	fmt.Fprintf(&b, "| Cost | $%.4f | $%.4f | %s |\n", before.TotalCost, after.TotalCost,
+		pctDelta(int(before.TotalCost*1e6), int(after.TotalCost*1e6)))
+	return b.String()
+}
+
+func ctxCell(before, after *parser.RunRecord) string {
+	if before == nil || after == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%s → %s (%s)", tokK(before.ContextWindowTokens()), tokK(after.ContextWindowTokens()),
+		pctDelta(before.ContextWindowTokens(), after.ContextWindowTokens()))
+}
+
+func timeCell(before, after *parser.RunRecord) string {
+	if before == nil || after == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%s → %s (%s)", dur(before.Timing.DurationMs), dur(after.Timing.DurationMs),
+		pctDelta(before.Timing.DurationMs, after.Timing.DurationMs))
+}
+
 func answerMeta(rec *parser.RunRecord) string {
 	if rec == nil {
 		return "_(no record)_"
 	}
-	return fmt.Sprintf("_model %s · %d turns · $%.4f · %d in / %d out tok_",
-		rec.Model, rec.NumTurns, rec.TotalCost, rec.TotalInputTokens(), rec.TotalOutputTokens())
+	return fmt.Sprintf("_model %s · %d turns · %s · context %s tok · $%.4f_",
+		rec.Model, rec.NumTurns, dur(rec.Timing.DurationMs), tokK(rec.ContextWindowTokens()), rec.TotalCost)
 }
 
 func answerText(rec *parser.RunRecord) string {
@@ -101,4 +146,34 @@ func verdictLabel(pref *runner.PreferenceResult) string {
 		return "—"
 	}
 	return pref.Outcome.Label()
+}
+
+func tokK(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+func dur(ms int) string {
+	s := ms / 1000
+	if s >= 60 {
+		return fmt.Sprintf("%dm%02ds", s/60, s%60)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+func pctDelta(before, after int) string {
+	if before == 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%+.1f%%", (float64(after)-float64(before))/float64(before)*100)
+}
+
+func intDelta(before, after int) string {
+	return fmt.Sprintf("%+d", after-before)
 }

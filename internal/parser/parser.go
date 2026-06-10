@@ -21,6 +21,12 @@ type RunRecord struct {
 	TotalCost  float64               `json:"total_cost_usd"`
 	ModelUsage map[string]ModelUsage `json:"model_usage,omitempty"`
 
+	// PeakContextTokens is the high-water mark of resident context: the max over
+	// main-session assistant turns of (input + cache_creation + cache_read). It is
+	// bounded by the model's window and matches the Claude Code status-line figure,
+	// unlike the cumulative TotalInputTokens which sums every turn's input.
+	PeakContextTokens int `json:"peak_context_tokens"`
+
 	// ToolCalls is the ordered list of top-level tool invocations. Sub-agent
 	// internal calls are excluded (see the assistant case in Parse); empty in
 	// flat no-tool runs.
@@ -75,6 +81,11 @@ func (r *RunRecord) TotalInputTokens() int {
 		total += m.InputTokens + m.CacheCreationInputTokens + m.CacheReadInputTokens
 	}
 	return total
+}
+
+// ContextWindowTokens is the peak resident context window (see PeakContextTokens).
+func (r *RunRecord) ContextWindowTokens() int {
+	return r.PeakContextTokens
 }
 
 // TotalOutputTokens returns session-wide output tokens summed across all models,
@@ -140,6 +151,11 @@ func Parse(r io.Reader) (*RunRecord, error) {
 						Type string `json:"type"`
 						Name string `json:"name"`
 					} `json:"content"`
+					Usage struct {
+						InputTokens              int `json:"input_tokens"`
+						CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+						CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+					} `json:"usage"`
 				} `json:"message"`
 			}
 			if err := json.Unmarshal(line, &am); err != nil {
@@ -147,6 +163,12 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			}
 			if am.ParentToolUseID != nil {
 				continue
+			}
+			// message.usage input side is the real prompt size for that turn (only
+			// output_tokens is a mid-stream snapshot); the max over turns is the peak
+			// resident window.
+			if resident := am.Message.Usage.InputTokens + am.Message.Usage.CacheCreationInputTokens + am.Message.Usage.CacheReadInputTokens; resident > rec.PeakContextTokens {
+				rec.PeakContextTokens = resident
 			}
 			for _, b := range am.Message.Content {
 				if b.Type == "tool_use" {

@@ -34,5 +34,6 @@
       "cost_usd": 0.10330399999999999
     }
   },
+  "peak_context_tokens": 32852,
   "tool_calls": []
 }

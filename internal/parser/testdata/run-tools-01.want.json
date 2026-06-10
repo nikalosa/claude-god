@@ -34,6 +34,7 @@
       "cost_usd": 0.01
     }
   },
+  "peak_context_tokens": 50000,
   "tool_calls": [
     { "name": "Grep" },
     { "name": "Read" },
