@@ -103,7 +103,7 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 		return r.Record, nil
 	}
 
-	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, res.Before, res.After, flagEvalSamples, flagEvalConcurrency, run, j)
+	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, res.Before, res.After, flagEvalSamples, flagEvalConcurrency, run, j, "")
 	if err != nil {
 		return err
 	}

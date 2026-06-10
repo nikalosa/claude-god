@@ -3,7 +3,7 @@
 // out to inspect the environment (cat/head/sed/grep/git, like a terminal) so the
 // context measurement mirrors a real session, but must not run arbitrary code,
 // install packages, hit the network, or mutate state a run reset cannot undo
-// (ADR-0006, ADR-0008).
+// (ADR-0006, ADR-0009).
 //
 // The model under test is cooperative, so the bar is not an airtight sandbox; it
 // is to block the actions the run's backstop cannot reverse. Runs execute in an
