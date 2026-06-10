@@ -138,10 +138,14 @@ func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas, concurr
 	fmt.Fprintf(b, "| Output tokens | %d | %d | %s |\n", d.OutputTokBefore, d.OutputTokAfter, deltaIntPct(d.OutputTokBefore, d.OutputTokAfter))
 	fmt.Fprintf(b, "| %s | %d | %d | %s |\n", durLabel, d.DurationMsBefore, d.DurationMsAfter, deltaIntPct(d.DurationMsBefore, d.DurationMsAfter))
 	fmt.Fprintf(b, "| Tool calls | %d | %d | %s |\n", d.ToolCallsBefore, d.ToolCallsAfter, deltaIntPct(d.ToolCallsBefore, d.ToolCallsAfter))
+	fmt.Fprintf(b, "| Context window — base (turn-1) | %d | %d | %s |\n", d.BaseCtxBefore, d.BaseCtxAfter, deltaIntPct(d.BaseCtxBefore, d.BaseCtxAfter))
+	fmt.Fprintf(b, "| Context window — peak ⚠ noisy | %d | %d | %s |\n", d.PeakCtxBefore, d.PeakCtxAfter, deltaIntPct(d.PeakCtxBefore, d.PeakCtxAfter))
 	fmt.Fprintln(b)
 	if concurrency > 1 {
 		fmt.Fprintf(b, "> ⚠ Duration measured under --concurrency %d; advisory, not comparable. Rerun with --concurrency 1 for authoritative timing. Cost and tokens are exact regardless.\n\n", concurrency)
 	}
+	fmt.Fprintln(b, "> Context window = mean per-probe resident tokens. **Base (turn-1)** is the config-only prompt (system + CLAUDE.md + rules + memory + probe) before any exploration — deterministic, the clean A/B signal. **Peak** is the exploration high-water mark and is run-to-run noisy.")
+	fmt.Fprintln(b)
 }
 
 // renderPerProbe renders the per-probe Numbers breakdown — one row per probe
@@ -163,23 +167,25 @@ func renderPerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcome, con
 	fmt.Fprintln(b)
 	fmt.Fprintln(b, "_Before → After (Δ%). Medians across samples._")
 	fmt.Fprintln(b)
-	fmt.Fprintf(b, "| Probe | %s | Cost (USD) | Input tok | Output tok | Tool calls |\n", durHdr)
-	fmt.Fprintln(b, "|---|---|---|---|---|---|")
+	fmt.Fprintf(b, "| Probe | %s | Cost (USD) | Input tok | Output tok | Tool calls | Base ctx |\n", durHdr)
+	fmt.Fprintln(b, "|---|---|---|---|---|---|---|")
 	for _, a := range sorted {
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", a.ProbeID,
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s |\n", a.ProbeID,
 			cellInt(a.Before.MedianDurationMs, a.After.MedianDurationMs),
 			cellFloat(a.Before.MedianCost, a.After.MedianCost),
 			cellInt(a.Before.MedianInputTok, a.After.MedianInputTok),
 			cellInt(a.Before.MedianOutputTok, a.After.MedianOutputTok),
-			cellInt(a.Before.MedianToolCalls, a.After.MedianToolCalls))
+			cellInt(a.Before.MedianToolCalls, a.After.MedianToolCalls),
+			cellInt(a.Before.MedianBaseCtx, a.After.MedianBaseCtx))
 	}
 	d := aggregator.ComputeDeltas(sorted)
-	fmt.Fprintf(b, "| **TOTAL** | %s | %s | %s | %s | %s |\n",
+	fmt.Fprintf(b, "| **TOTAL** (Base ctx: mean) | %s | %s | %s | %s | %s | %s |\n",
 		cellInt(d.DurationMsBefore, d.DurationMsAfter),
 		cellFloat(d.CostBefore, d.CostAfter),
 		cellInt(d.InputTokBefore, d.InputTokAfter),
 		cellInt(d.OutputTokBefore, d.OutputTokAfter),
-		cellInt(d.ToolCallsBefore, d.ToolCallsAfter))
+		cellInt(d.ToolCallsBefore, d.ToolCallsAfter),
+		cellInt(d.BaseCtxBefore, d.BaseCtxAfter))
 	fmt.Fprintln(b)
 }
 

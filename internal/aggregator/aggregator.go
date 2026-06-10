@@ -37,6 +37,8 @@ type AggregatedEnv struct {
 	MedianOutputTok  int
 	MedianDurationMs int
 	MedianToolCalls  int
+	MedianBaseCtx    int
+	MedianPeakCtx    int
 	Rules            []AggregatedRuleResult
 }
 
@@ -68,6 +70,8 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 	outputs := make([]int, 0, len(e.Runs))
 	durations := make([]int, 0, len(e.Runs))
 	toolCalls := make([]int, 0, len(e.Runs))
+	baseCtx := make([]int, 0, len(e.Runs))
+	peakCtx := make([]int, 0, len(e.Runs))
 	for _, r := range e.Runs {
 		if r.Record == nil {
 			continue
@@ -77,6 +81,8 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 		outputs = append(outputs, r.Record.TotalOutputTokens())
 		durations = append(durations, r.Record.Timing.DurationMs)
 		toolCalls = append(toolCalls, len(r.Record.ToolCalls))
+		baseCtx = append(baseCtx, r.Record.BaseContextWindowTokens())
+		peakCtx = append(peakCtx, r.Record.ContextWindowTokens())
 	}
 
 	perRule := map[string][]dsl.RuleResult{}
@@ -119,6 +125,8 @@ func aggregateEnv(e EnvOutcome) AggregatedEnv {
 		MedianOutputTok:  medianInt(outputs),
 		MedianDurationMs: medianInt(durations),
 		MedianToolCalls:  medianInt(toolCalls),
+		MedianBaseCtx:    medianInt(baseCtx),
+		MedianPeakCtx:    medianInt(peakCtx),
 		Rules:            aggRules,
 	}
 }
@@ -221,6 +229,12 @@ type Deltas struct {
 	DurationMsAfter  int
 	ToolCallsBefore  int
 	ToolCallsAfter   int
+	// Context window is a per-run snapshot (turn-1 base / peak high-water), not a
+	// cumulative total, so these are the MEAN across probes — not a sum.
+	BaseCtxBefore int
+	BaseCtxAfter  int
+	PeakCtxBefore int
+	PeakCtxAfter  int
 }
 
 func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
@@ -236,6 +250,16 @@ func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
 		d.DurationMsAfter += a.After.MedianDurationMs
 		d.ToolCallsBefore += a.Before.MedianToolCalls
 		d.ToolCallsAfter += a.After.MedianToolCalls
+		d.BaseCtxBefore += a.Before.MedianBaseCtx
+		d.BaseCtxAfter += a.After.MedianBaseCtx
+		d.PeakCtxBefore += a.Before.MedianPeakCtx
+		d.PeakCtxAfter += a.After.MedianPeakCtx
+	}
+	if n := len(aggs); n > 0 {
+		d.BaseCtxBefore /= n
+		d.BaseCtxAfter /= n
+		d.PeakCtxBefore /= n
+		d.PeakCtxAfter /= n
 	}
 	return d
 }
