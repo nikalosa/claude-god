@@ -24,6 +24,7 @@ type Opts struct {
 	Branch        string
 	Prompt        string
 	NoMemSnapshot bool
+	MemorySource  string
 }
 
 type Result struct {
@@ -72,8 +73,8 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 		worktreeMu.Unlock()
 	}()
 
-	if !opts.NoMemSnapshot {
-		restore, err := swapMemorySnapshot(wt)
+	if src := memorySource(wt, opts); src != "" {
+		restore, err := swapMemory(wt, src)
 		if err != nil {
 			return nil, fmt.Errorf("memory swap: %w", err)
 		}
@@ -110,11 +111,23 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 	}, nil
 }
 
-func swapMemorySnapshot(worktree string) (restore func(), err error) {
-	src := filepath.Join(worktree, ".validator", "memory-snapshot")
+// memorySource picks what to inject into the run worktree: an explicit live
+// source (the bare command's current project memory) wins; --no-memory-snapshot
+// disables injection; otherwise the committed snapshot pinned in the worktree.
+func memorySource(worktree string, opts Opts) string {
+	if opts.MemorySource != "" {
+		return opts.MemorySource
+	}
+	if opts.NoMemSnapshot {
+		return ""
+	}
+	return filepath.Join(worktree, ".validator", "memory-snapshot")
+}
+
+func swapMemory(worktree, src string) (restore func(), err error) {
 	if _, statErr := os.Stat(src); statErr != nil {
 		if os.IsNotExist(statErr) {
-			fmt.Fprintf(os.Stderr, "warning: no memory snapshot at %s; proceeding without swap\n", src)
+			fmt.Fprintf(os.Stderr, "warning: no project memory at %s; proceeding without injection\n", src)
 			return func() {}, nil
 		}
 		return nil, statErr

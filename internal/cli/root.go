@@ -15,7 +15,11 @@ var rootCmd = &cobra.Command{
 configurations (before vs after a restructure) against a corpus of probes,
 grades each rule pass/fail, and reports behavioral-fidelity and cost deltas.
 
-See docs/PRD.md for the full design.`,
+Run bare (no subcommand) to benchmark the current repo end-to-end: it
+auto-discovers the corpus, auto-detects Before/After from git, and prints the
+report. run/snapshot/calibrate remain for power users. See docs/PRD.md.`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 // Execute runs the root command and exits non-zero on error.

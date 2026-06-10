@@ -46,8 +46,8 @@ A **Probe** is one prompt plus how its response is graded. Three kinds, built in
 
 ## How a run works
 
-- **Before / After** are git branches in the Target. Each **Run** spawns a fresh `git worktree` off the right branch, runs Claude headlessly inside, captures the stream, and cleans up (`git worktree remove --force`). Reproducible months later.
-- **Project memory** (`~/.claude/projects/<slug>/memory/`) is snapshotted into the run by default so user-level memory drift doesn't pollute the A/B; `--no-memory-snapshot` opts out.
+- **Before / After** are committishes in the Target, **auto-detected from git** by the bare command ([ADR-0008](adr/0008-one-command-evaluation-and-auto-detection.md)): a dirty tree compares `HEAD` vs the working tree (temp-committed so new untracked env files count); a clean tree compares `merge-base(default-branch, HEAD)` vs `HEAD`. Override either with `--before`/`--after`. Each **Run** spawns a fresh `git worktree` off the right committish, runs Claude headlessly inside, captures the stream, and cleans up (`git worktree remove --force`).
+- **Project memory** (`~/.claude/projects/<slug>/memory/`) is held constant across the A/B so user-level drift doesn't pollute it: the bare command injects the **live** current memory into both worktrees, while `run`/`snapshot` pin a committed copy. `--no-memory-snapshot` opts out.
 - **Headless and read-only.** `claude -p "<prompt>" --output-format stream-json --permission-mode bypassPermissions --disallowedTools Agent Bash Edit Write WebFetch --disable-slash-commands`. The graded signal is the assistant **text**; the model keeps `Read/Grep/Glob` to inspect the Environment but cannot mutate the tree, shell out, hit the network, or fire a skill. Skills aren't part of the Environment, so disabling them removes noise, not signal ([ADR-0006](adr/0006-headless-runs-read-only.md)). Diff capture still runs but records nothing until real execution lands.
 - **No preamble** is injected — whatever Claude needs comes from the Target's CLAUDE.md, rules, and memory, which is exactly what's under test.
 - **N=3** samples per environment: median for Numbers, majority vote for rule outcomes, adaptive expansion to N=5 when a `critical` rule's samples disagree. Same-prompt repeats — the variance *is* the noise floor.
@@ -76,13 +76,14 @@ The tool is subprocess orchestration (`claude -p`, `git worktree`, `git diff`) p
 
 Packages under `internal/`:
 
-- **harness** — worktree lifecycle, memory snapshot swap, `claude -p` invocation, stream + diff capture, cleanup. Repo-agnostic.
+- **autodetect** — resolve Before/After committishes from the Target's git state (dirty → HEAD vs working tree; clean → merge-base vs HEAD), both overridable. Pure git, no live Claude ([ADR-0008](adr/0008-one-command-evaluation-and-auto-detection.md)).
+- **harness** — worktree lifecycle, memory swap (live source or committed snapshot), `claude -p` invocation, stream + diff capture, cleanup. Repo-agnostic.
 - **parser** — stream-json JSONL → **RunRecord**: ordered tool calls with per-call token attribution (recursing into `Agent` sub-agent calls), file mutations, per-turn timing, total cost.
 - **dsl** — loads YAML, evaluates Checks against a RunRecord → per-rule PASS/FAIL.
 - **judge** — `claude -p` empty-dir backend for Rubric check and Preference comparison, behind one interface (swappable to the Anthropic API later if true temp-0 is ever needed).
 - **aggregator** — N=3 / N=5 run records → median Numbers + majority-vote outcomes.
 - **report** — markdown + JSON.
-- **cli** — cobra tree: `run --level … --target … --corpus …`, plus `snapshot` (pin an Environment to a branch) and `calibrate` (Before-vs-Before noise floor).
+- **cli** — cobra tree. The bare command (no subcommand) auto-discovers the corpus, auto-detects Before/After, prints a spend plan, confirms, and reports; `run`/`snapshot`/`calibrate` survive as power-user overrides (pin an Environment to a branch, Before-vs-Before noise floor).
 
 harness, parser, dsl, and aggregator are testable with no live Claude — replay fixtures of stream-json + git-diff suffice.
 

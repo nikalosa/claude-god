@@ -69,21 +69,27 @@ tasks for real is deferred. Tracked in GitHub issues #1–#7.
 
 Requires **Go 1.24+** (earlier internal linkers omit `LC_UUID`, which recent macOS rejects at load).
 
+One command benchmarks the current repo end-to-end — it auto-discovers the corpus, auto-detects
+**Before**/**After** from git, prints a spend plan, and reports ([ADR-0008](docs/adr/0008-one-command-evaluation-and-auto-detection.md)):
+
 ```sh
 go build ./...
-go run ./cmd/claude-validator --help
-go run ./cmd/claude-validator run --level l1 --target . --corpus <dir>
-# Plan probes (Mode = Plan): a step-by-step plan, graded by preference like open-ended.
-go run ./cmd/claude-validator run --level l2 --target . \
-  --corpus examples/corpus/plan-smoke.yaml --before <before> --after <after>
+go run ./cmd/claude-validator            # bare: auto-detect everything, then confirm
 ```
+
+**Before/After** default from git state — a dirty tree compares `HEAD` vs the working tree
+(uncommitted and new untracked env files included); a clean tree compares `merge-base(default, HEAD)`
+vs `HEAD`. Override either with `--before`/`--after`; pick a corpus with `--corpus`; skip the
+prompt with `--yes`. The `run`, `snapshot`, and `calibrate` subcommands remain for power users
+(e.g. `run --level l2 --corpus examples/corpus/plan-smoke.yaml` to grade plan/open-ended probes).
 
 ## Layout
 
 ```
 cmd/claude-validator/   CLI entrypoint (thin; delegates to internal/cli)
 internal/
-  cli/          cobra command tree (root + run)
+  cli/          cobra command tree (bare benchmark + run/calibrate/snapshot)
+  autodetect/   resolve Before/After committishes from git state  (ADR-0008)
   harness/      isolated per-probe run: worktree, memory swap, claude -p, diff capture  (#4)
   parser/       stream-json JSONL -> RunRecord; shape notes + golden fixtures in testdata  (#3)
   dsl/          YAML predicate DSL -> per-rule PASS/FAIL  (#5+)
