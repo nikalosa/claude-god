@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -52,11 +54,11 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()
 
-	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, nil)
+	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, nil, "")
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, nil)
+	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, nil, "")
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}
@@ -87,6 +89,33 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	}
 }
 
+// TestRunBenchmark_DumpDirWritesAnswers proves the dumpDir seam threads through:
+// when set, runBenchmark writes one Markdown file per probe holding the judged
+// Before/After answers, and an index. An empty dumpDir (every other test) writes
+// nothing.
+func TestRunBenchmark_DumpDirWritesAnswers(t *testing.T) {
+	dir := t.TempDir()
+	probes := openEndedProbes("alpha", "beta")
+	j := judge.StubJudge{Pref: judge.Preference{Outcome: judge.AfterBetter}}
+
+	if _, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j, dir); err != nil {
+		t.Fatalf("runBenchmark: %v", err)
+	}
+
+	for _, name := range []string{"index.md", "01-alpha.md", "02-beta.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("expected dump file %s: %v", name, err)
+		}
+	}
+	doc, err := os.ReadFile(filepath.Join(dir, "01-alpha.md"))
+	if err != nil {
+		t.Fatalf("read dump: %v", err)
+	}
+	if !strings.Contains(string(doc), "## Before") || !strings.Contains(string(doc), "## After") {
+		t.Errorf("dump missing Before/After sections:\n%s", doc)
+	}
+}
+
 func openEndedProbes(ids ...string) []dsl.Probe {
 	probes := make([]dsl.Probe, len(ids))
 	for i, id := range ids {
@@ -104,11 +133,11 @@ func TestRunBenchmark_JudgeDeterministicAcrossConcurrency(t *testing.T) {
 	ctx := context.Background()
 	j := judge.StubJudge{Pref: judge.Preference{Outcome: judge.AfterBetter}}
 
-	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, j)
+	v1, p1, a1, err := runBenchmark(ctx, probes, "before", "after", 3, 1, fakeRun, j, "")
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, j)
+	v8, p8, a8, err := runBenchmark(ctx, probes, "before", "after", 3, 8, fakeRun, j, "")
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}
@@ -147,7 +176,7 @@ func TestRunBenchmark_GradesConcurrently(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, n, fakeRun, j)
+		_, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, n, fakeRun, j, "")
 		done <- err
 	}()
 
@@ -172,7 +201,7 @@ func TestRunBenchmark_HardGradeErrorAborts(t *testing.T) {
 	}}}}
 	j := judge.StubJudge{ScoreErr: errors.New("boom")}
 
-	if _, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j); err == nil {
+	if _, _, _, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j, ""); err == nil {
 		t.Fatal("want runBenchmark to abort on a hard grade error, got nil")
 	}
 }
@@ -184,7 +213,7 @@ func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
 	probes := openEndedProbes("alpha", "beta")
 	j := judge.StubJudge{PrefErr: errors.New("boom")}
 
-	verdicts, prefs, aggs, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j)
+	verdicts, prefs, aggs, err := runBenchmark(context.Background(), probes, "before", "after", 1, 4, fakeRun, j, "")
 	if err != nil {
 		t.Fatalf("preference error must not abort: %v", err)
 	}
@@ -207,7 +236,7 @@ func TestRunBenchmark_PlanProbeEndToEnd(t *testing.T) {
 		Exhaustive: judge.Tie, Direct: judge.AfterBetter, Reasoning: "after has clearer steps",
 	}}
 
-	verdicts, prefs, deltas, err := runBenchmark(context.Background(), []dsl.Probe{probe}, "before", "after", 1, 1, fakeRun, j)
+	verdicts, prefs, deltas, err := runBenchmark(context.Background(), []dsl.Probe{probe}, "before", "after", 1, 1, fakeRun, j, "")
 	if err != nil {
 		t.Fatalf("runBenchmark: %v", err)
 	}

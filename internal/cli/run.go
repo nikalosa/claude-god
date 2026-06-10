@@ -31,6 +31,7 @@ var (
 	flagSamples       int
 	flagConcurrency   int
 	flagNoMemSnapshot bool
+	flagDumpDir       string
 )
 
 // runFunc executes one probe sample on a branch and returns its record. The
@@ -75,7 +76,7 @@ var runCmd = &cobra.Command{
 
 		ctx := context.Background()
 		run := harnessRun(target, flagNoMemSnapshot)
-		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j)
+		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j, flagDumpDir)
 		if err != nil {
 			return err
 		}
@@ -153,7 +154,7 @@ func taskPrompt(probe dsl.Probe) string {
 // nothing about the result; only Duration inflates under concurrency (see
 // ADR-0005). Shared by run and calibrate (calibrate passes the same branch on
 // both sides). run is injected so the pool is testable without claude.
-func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
+func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
 
@@ -252,6 +253,14 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 		return nil, nil, nil, err
 	}
 
+	if dumpDir != "" {
+		if err := report.DumpAnswers(dumpDir, before, after, probes, beforeRecs, afterRecs, prefSlots); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: answer dump failed: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "wrote answer dump to %s\n", dumpDir)
+		}
+	}
+
 	var prefs []runner.PreferenceResult
 	for _, p := range prefSlots {
 		if p != nil {
@@ -329,4 +338,5 @@ func init() {
 	f.IntVar(&flagSamples, "samples", 3, "samples per environment (odd N; N=3 by default, adaptive N=5 deferred)")
 	f.IntVar(&flagConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")
+	f.StringVar(&flagDumpDir, "dump-dir", "", "write each probe's judged Before/After answers here (one Markdown file per probe)")
 }
