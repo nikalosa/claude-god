@@ -21,7 +21,7 @@ How the tool ships. The skills distribute through **two channels at once**: the 
 
 ## Consequences
 
-- Renames amend [ADR-0010](0010-rename-to-claude-benchmark.md)'s consequence list: skill dirs `env-benchmark → config-bench`, `generate-corpus → quizgen`, `env-restructure → config-refactor` (+ `name:`/description, and refs in README, ADR-0007/0008/0010, `internal/cli/bare.go`). ADR-0010's *core* (binary names the agent, skills stay agent-agnostic) stands.
+- Renames amend [ADR-0010](0010-rename-to-claude-benchmark.md)'s consequence list: skill dirs `env-benchmark → config-bench`, `generate-corpus → quizgen`, `env-restructure → config-refactor`. Applied to **living surfaces** only — the dirs, each SKILL.md `name:` + cross-refs, README, `internal/cli/bare.go`+test, and the CONTEXT.md reconcile. Earlier ADRs (0007/0008/0010) are left as historical record; this ADR is the authoritative current naming. ADR-0010's *core* (binary names the agent, skills stay agent-agnostic) stands.
 - The binary's canonical artifact is the GitHub Release asset, shared across every agent and both channels. The plugin wrapper fetches it; the npx path needs it installed separately, so the `config-bench` skill must detect a missing binary and point the dev at `go install`.
 - No `NPM_TOKEN`, no npm publish pipeline. Release pipeline = GoReleaser → GitHub Releases (binaries + `checksums.txt`) on tag `v*`.
 - DISTRIBUTION.md holds the execution plan (files, manifests, pipeline, prereqs).
