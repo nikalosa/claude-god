@@ -1,5 +1,5 @@
 ---
-name: generate-corpus
+name: quizgen
 description: Drafts a claude-benchmark corpus — probes and how they're graded — from a project's Before-branch context, in three independent streams run in parallel. Rule-based probes collect the important, easily-dropped rules from hand-selected docs (one subagent per doc, that doc's text only — no codebase, no general-knowledge questions); open-ended system/design probes and plan probes are drafted from the whole project. You draft; the dev reviews and finalizes. Use when authoring or extending a benchmark corpus, generating probes from a project's docs, or when the user mentions corpus generation or a steering config.
 ---
 

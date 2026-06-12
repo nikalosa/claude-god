@@ -45,7 +45,7 @@ Full design: [docs/PRD.md](docs/PRD.md). Glossary: [CONTEXT.md](CONTEXT.md). Key
 
 ## Generating the corpus
 
-You don't hand-write every probe. The **`generate-corpus`** skill (the **Generator**) drafts
+You don't hand-write every probe. The **`quizgen`** skill (the **Generator**) drafts
 a corpus from the **Before** branch in three independent streams, then you review and finalize:
 
 - **Rule-based** — for *each* selected doc, a separate subagent sees **only that doc** (no
@@ -58,7 +58,7 @@ a corpus from the **Before** branch in three independent streams, then you revie
 You then talk to the skill — edit probes, drop any rule-based probe Claude can answer
 *without* its doc, confirm severities (reading priority, never a gate) — and freeze the set
 onto Before. Regeneration appends new probes; it never rewrites the frozen corpus. Details:
-[`.claude/skills/generate-corpus`](.claude/skills/generate-corpus/SKILL.md).
+[`.claude/skills/quizgen`](.claude/skills/quizgen/SKILL.md).
 
 ## Status
 

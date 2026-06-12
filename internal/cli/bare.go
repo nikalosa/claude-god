@@ -113,7 +113,7 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 
 // discoverCorpus finds the corpus under <target>/.benchmark/corpus/: one file is
 // used, several prompt a choice on a TTY (else error listing them), none points
-// the dev at generate-corpus. override short-circuits the search.
+// the dev at quizgen. override short-circuits the search.
 func discoverCorpus(target, override string, in *os.File) (string, error) {
 	if override != "" {
 		return override, nil
@@ -126,7 +126,7 @@ func discoverCorpus(target, override string, in *os.File) (string, error) {
 	sort.Strings(matches)
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no corpus in %s — author one with the generate-corpus skill, or pass --corpus <file>", dir)
+		return "", fmt.Errorf("no corpus in %s — author one with the quizgen skill, or pass --corpus <file>", dir)
 	case 1:
 		return matches[0], nil
 	default:

@@ -1,5 +1,5 @@
 ---
-name: env-restructure
+name: config-refactor
 description: Reorganizes a repo's Claude Code context (root CLAUDE.md, .claude/rules/*, nested CLAUDE.md, docs) to shrink always-on context while keeping every instruction reachable — a verbatim reorganization, never a rewrite. Produces a self-contained migration plan a fresh session can execute. Use when the user says "slim/restructure/reorganize CLAUDE.md", "reduce always-on context", "my CLAUDE.md is too big", "split rules", "context bloat", or "too much loads every session". Skip for one-off edits to a single context file.
 ---
 

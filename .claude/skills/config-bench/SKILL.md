@@ -1,5 +1,5 @@
 ---
-name: env-benchmark
+name: config-bench
 description: Thin conversational wrapper over the `claude-benchmark` CLI — detect Before/After from git, run an A/B benchmark of a repo's Claude environment (CLAUDE.md, .claude/rules, docs, memory) across two configs, and read the report back (Regressions, efficiency Numbers, noise). Use when the dev wants to benchmark or check their Claude environment or a CLAUDE.md restructure, asks "did my restructure regress anything", "is my new context better/cheaper", "check my Claude context", or mentions claude-benchmark. It reports and the dev decides — it never edits the environment.
 ---
 
@@ -20,7 +20,7 @@ confirm, and interpret. Glossary: [CONTEXT.md](../../../CONTEXT.md).
      After = `HEAD`. If the dev names a baseline in chat ("vs the release branch"), pass
      `--before <ref>`.
    - Check `.benchmark/corpus/` holds ≥1 `*.yaml`. **None** → tell the dev there's no corpus
-     and offer to launch the **generate-corpus** skill. **Several** and the dev didn't pick →
+     and offer to launch the **quizgen** skill. **Several** and the dev didn't pick →
      ask which, pass `--corpus <file>`.
 
 2. **Run with confirmation.** The binary prints a spend plan — resolved Before/After, probe
@@ -53,5 +53,5 @@ results") is out of scope (PRD) until the tool is trusted. Read-only, advisory.
 
 ## Chain
 
-- No corpus, or the dev wants new probes → **generate-corpus** (authors the Corpus from
+- No corpus, or the dev wants new probes → **quizgen** (authors the Corpus from
   Before; human-reviewed and frozen). A benchmark needs a corpus to exist first.

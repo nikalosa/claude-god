@@ -2,7 +2,7 @@
 
 The language of comparing two Claude environments (the messy "before" and the restructured "after") and reporting what improved and what changed. The product is a **decision-support report a human reads** — not an automated gate. Terms here are the project's vocabulary; general programming concepts are excluded.
 
-**Environment** here means the whole Claude context configuration of a project: its **CLAUDE.md** (root + nested), **Claude rules** (`.claude/rules/*`), **docs**, and **memory**. These are distinct parts — "Claude rules" is *only* `.claude/rules/*`, never an umbrella for the others.
+**Environment** here means the whole Claude context configuration of a project: its **CLAUDE.md** (root + nested), **Claude rules** (`.claude/rules/*`), **docs**, and **memory**. These are distinct parts — "Claude rules" is *only* `.claude/rules/*`, never an umbrella for the others. The public **skill-name** surface shortens this bundle to **config** (`config-bench`, `config-refactor`) — it names the whole configuration, friendlier than "environment" (reads as env-vars) and broader than "context" (one slice).
 
 ## Language
 
@@ -14,7 +14,7 @@ _Avoid_: Repo-under-test, subject, SUT.
 
 **Environment**:
 One of the two configurations being compared, pinned to a git branch: **Before** (baseline) and **After** (the change under test). Every probe runs in both.
-_Avoid_: Config, variant, arm, side (except `VerdictSide`, which is the per-environment half of a verdict).
+_Avoid_: Config (for a single Before/After side — that's an **Environment**; "config" is reserved for the public skill-name surface above), variant, arm, side (except `VerdictSide`, which is the per-environment half of a verdict).
 
 **Mode**:
 What a probe asks Claude to produce: **Ask** (answer a question) or **Plan** (produce a step-by-step plan, *not* execute it). Executing the task is out of scope for v1.

@@ -26,10 +26,10 @@ func TestDiscoverCorpus(t *testing.T) {
 		}
 	})
 
-	t.Run("none points at generate-corpus", func(t *testing.T) {
+	t.Run("none points at quizgen", func(t *testing.T) {
 		_, err := discoverCorpus(t.TempDir(), "", nonTTY(t))
-		if err == nil || !strings.Contains(err.Error(), "generate-corpus") {
-			t.Fatalf("want generate-corpus hint, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "quizgen") {
+			t.Fatalf("want quizgen hint, got %v", err)
 		}
 	})
 
