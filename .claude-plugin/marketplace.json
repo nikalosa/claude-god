@@ -1,0 +1,28 @@
+{
+  "name": "claude-god",
+  "owner": {
+    "name": "nikalosa",
+    "url": "https://github.com/nikalosa"
+  },
+  "metadata": {
+    "description": "Claude Code tooling for benchmarking, generating, and restructuring a repo's AI context configuration.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "config-bench",
+      "source": "./plugins/config-bench",
+      "description": "A/B-benchmark two Claude context configs (Before/After) and read back what got faster, cheaper, or regressed. Bundles the claude-benchmark CLI (auto-downloaded on first use)."
+    },
+    {
+      "name": "quizgen",
+      "source": "./plugins/quizgen",
+      "description": "Draft a benchmark corpus — probes plus how they're graded — from a project's docs and code, in three parallel streams. You draft; the dev finalizes."
+    },
+    {
+      "name": "config-refactor",
+      "source": "./plugins/config-refactor",
+      "description": "Reorganize a repo's CLAUDE.md + .claude/rules to shrink always-on context without losing any instruction. Produces a migration plan, never a silent rewrite."
+    }
+  ]
+}

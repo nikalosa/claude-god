@@ -58,7 +58,7 @@ a corpus from the **Before** branch in three independent streams, then you revie
 You then talk to the skill — edit probes, drop any rule-based probe Claude can answer
 *without* its doc, confirm severities (reading priority, never a gate) — and freeze the set
 onto Before. Regeneration appends new probes; it never rewrites the frozen corpus. Details:
-[`.claude/skills/quizgen`](.claude/skills/quizgen/SKILL.md).
+[`plugins/quizgen`](plugins/quizgen/skills/quizgen/SKILL.md).
 
 ## Status
 

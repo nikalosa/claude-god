@@ -8,9 +8,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is overridden at release time via -ldflags
+// -X github.com/nikalosa/claude-god/internal/cli.version=<tag> (see .goreleaser.yaml).
+var version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "claude-benchmark",
-	Short: "A/B-benchmark CLAUDE.md context configs for behavioral-fidelity regressions",
+	Use:     "claude-benchmark",
+	Version: version,
+	Short:   "A/B-benchmark CLAUDE.md context configs for behavioral-fidelity regressions",
 	Long: `claude-benchmark runs an A/B benchmark of two Claude Code context
 configurations (before vs after a restructure) against a corpus of probes,
 grades each rule pass/fail, and reports behavioral-fidelity and cost deltas.

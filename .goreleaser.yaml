@@ -1,0 +1,30 @@
+version: 2
+project_name: claude-benchmark
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: claude-benchmark
+    main: ./cmd/claude-benchmark
+    binary: claude-benchmark
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/nikalosa/claude-god/internal/cli.version={{.Version}}
+
+archives:
+  - id: raw
+    formats: [binary]
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: nikalosa
+    name: claude-god

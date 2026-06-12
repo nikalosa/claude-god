@@ -1,0 +1,65 @@
+#!/bin/sh
+# Lazy bootstrapper for the claude-benchmark CLI shipped with the config-bench
+# plugin. First run downloads the matching prebuilt release (checksum-verified)
+# into a persistent cache; every run after execs the cached binary directly.
+set -eu
+
+REPO="nikalosa/claude-god"
+BIN="claude-benchmark"
+VERSION="${CLAUDE_BENCHMARK_VERSION:-latest}"
+
+store="${CLAUDE_PLUGIN_DATA:-${XDG_CACHE_HOME:-$HOME/.cache}/claude-benchmark}"
+target="$store/$BIN"
+
+if [ ! -x "$target" ]; then
+  os=$(uname -s)
+  case "$os" in
+    Darwin) os=darwin ;;
+    Linux)  os=linux ;;
+    *) echo "claude-benchmark: unsupported OS '$os' — install via 'go install github.com/$REPO/cmd/$BIN@latest'" >&2; exit 1 ;;
+  esac
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64|amd64) arch=amd64 ;;
+    arm64|aarch64) arch=arm64 ;;
+    *) echo "claude-benchmark: unsupported arch '$arch' — install via 'go install github.com/$REPO/cmd/$BIN@latest'" >&2; exit 1 ;;
+  esac
+
+  asset="${BIN}_${os}_${arch}"
+  if [ "$VERSION" = latest ]; then
+    base="https://github.com/$REPO/releases/latest/download"
+  else
+    base="https://github.com/$REPO/releases/download/$VERSION"
+  fi
+
+  echo "claude-benchmark: downloading $asset ($VERSION)…" >&2
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+
+  if ! curl -fsSL "$base/$asset" -o "$tmp/$BIN"; then
+    echo "claude-benchmark: download failed — install via 'go install github.com/$REPO/cmd/$BIN@latest'" >&2; exit 1
+  fi
+  if ! curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt"; then
+    echo "claude-benchmark: checksum list download failed" >&2; exit 1
+  fi
+
+  want=$(grep " $asset\$" "$tmp/checksums.txt" | awk '{print $1}')
+  if [ -z "$want" ]; then
+    echo "claude-benchmark: $asset missing from checksums.txt" >&2; exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$tmp/$BIN" | awk '{print $1}')
+  else
+    got=$(shasum -a 256 "$tmp/$BIN" | awk '{print $1}')
+  fi
+  if [ "$want" != "$got" ]; then
+    echo "claude-benchmark: checksum mismatch (want $want, got $got)" >&2; exit 1
+  fi
+
+  mkdir -p "$store"
+  chmod 0755 "$tmp/$BIN"
+  mv "$tmp/$BIN" "$target"
+  rm -rf "$tmp"; trap - EXIT
+fi
+
+exec "$target" "$@"

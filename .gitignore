@@ -1,4 +1,5 @@
 /claude-benchmark
+/dist/
 
 .benchmark/*
 

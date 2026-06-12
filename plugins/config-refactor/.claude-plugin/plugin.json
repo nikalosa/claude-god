@@ -1,0 +1,10 @@
+{
+  "name": "config-refactor",
+  "description": "Reorganize a repo's CLAUDE.md + .claude/rules to shrink always-on context without losing any instruction. Produces a migration plan, never a silent rewrite.",
+  "version": "0.1.0",
+  "author": { "name": "nikalosa", "url": "https://github.com/nikalosa" },
+  "homepage": "https://github.com/nikalosa/claude-god",
+  "repository": "https://github.com/nikalosa/claude-god",
+  "license": "MIT",
+  "keywords": ["claude", "claude.md", "context", "refactor", "tokens"]
+}

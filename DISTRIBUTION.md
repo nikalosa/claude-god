@@ -1,6 +1,6 @@
 # Distribution plan — ship `claude-benchmark` + its skills
 
-**Status:** planned. Decisions locked in [ADR-0011](docs/adr/0011-distribution-and-public-skill-names.md). Execute on a clean branch off `main`. Repo must be **public** (required for `/plugin install`, npx fetch, and release-download URLs).
+**Status:** implemented on branch `distribution-plugins` — skills relocated into `plugins/`, marketplace + per-plugin manifests, lazy `bin/` wrapper, GoReleaser + CI/release workflows, and `--version` ldflags all added; `go build`/`go test` green, version injection verified, all 4 targets cross-compile. Remaining before publish = the **Manual prerequisites** below (make repo public, tag `v0.1.0`) and the first CI-driven GoReleaser run. Decisions locked in [ADR-0011](docs/adr/0011-distribution-and-public-skill-names.md). Repo must be **public** (required for `/plugin install`, npx fetch, and release-download URLs).
 
 ## Goal
 
@@ -51,8 +51,8 @@ Canonical artifact = **GitHub Release asset**, shared by every agent and both ch
 - **`.github/workflows/ci.yml`** — `go build ./... && go test ./...` on PRs.
 
 ### B2. Plugin bootstrap (the turnkey path)
-- **`plugins/config-bench/bin/claude-benchmark`** — committed wrapper, auto-added to the Bash PATH while the plugin is enabled. On invocation: if the real binary is absent from `${CLAUDE_PLUGIN_DATA}/`, detect os/arch → download the matching release asset + `checksums.txt` → verify sha256 → write (mode 0755); then `exec` it, propagating args + exit code. Idempotent: present → exec immediately. Prints a one-line "downloading…" only on the first run.
-  - *Verify during build:* whether the wrapper receives `${CLAUDE_PLUGIN_DATA}` in its env, or must derive its store path from `$0`. Targets are darwin/linux only, so a POSIX-sh wrapper suffices.
+- **`plugins/config-bench/bin/claude-benchmark`** — committed POSIX-sh wrapper, auto-added to the Bash PATH while the plugin is enabled. On invocation: if the real binary is absent from the cache, detect os/arch → download the matching release asset + `checksums.txt` → verify sha256 (`sha256sum` or `shasum -a 256`) → write (mode 0755); then `exec` it, propagating args + exit code. Idempotent: present → exec immediately. Prints a one-line "downloading…" only on the first run. Asset version is `latest` by default, overridable via `$CLAUDE_BENCHMARK_VERSION`.
+  - **Cache dir resolved:** `${CLAUDE_PLUGIN_DATA}` if Claude Code exports it, else `${XDG_CACHE_HOME:-$HOME/.cache}/claude-benchmark`. The XDG fallback survives plugin reinstalls, so the binary is cached regardless of whether `CLAUDE_PLUGIN_DATA` is present — the earlier open question is no longer a blocker. (Still worth confirming at runtime which path is used, just to prefer the official persistent dir.)
 
 ### B3. Standalone (power users / non-Claude agents)
 - `go install github.com/nikalosa/claude-god/cmd/claude-benchmark@latest` for Go users.
@@ -64,17 +64,17 @@ Canonical artifact = **GitHub Release asset**, shared by every agent and both ch
 
 ---
 
-## Skill rename — DONE; relocation pending
+## Skill rename + relocation — DONE
 
-The `env-*` → `config-bench` / `quizgen` / `config-refactor` rename is **already applied in place** under `.claude/skills/`: dirs renamed, SKILL.md `name:` + cross-refs, README, `internal/cli/bare.go`+test, and the CONTEXT.md reconcile. ADRs 0007/0008/0010 left as historical record — [ADR-0011](docs/adr/0011-distribution-and-public-skill-names.md) carries the rename. Skills still auto-load for dogfooding.
+The `env-*` → `config-bench` / `quizgen` / `config-refactor` rename and the relocation into the plugin tree are both **applied** on `distribution-plugins`:
 
-Only **relocation** into the plugin tree remains, on the implementation branch (it disables `.claude/skills` auto-load, so it lands together with the marketplace manifests):
-
-| now (in place) | → plugin tree |
+| was | now (`git mv`, history preserved) |
 |---|---|
 | `.claude/skills/config-bench/` | `plugins/config-bench/skills/config-bench/` |
 | `.claude/skills/quizgen/` | `plugins/quizgen/skills/quizgen/` |
 | `.claude/skills/config-refactor/` | `plugins/config-refactor/skills/config-refactor/` |
+
+`.claude/skills/` is now empty, so skills no longer auto-load — dogfood via `/plugin marketplace add ./`. The two repo-relative links in `config-bench`'s SKILL.md (ADR-0008, CONTEXT.md) were rewritten to absolute `github.com/nikalosa/claude-god/blob/main/…` URLs so they resolve both in-repo and once installed standalone. ADRs 0007/0008/0010 left as historical record — [ADR-0011](docs/adr/0011-distribution-and-public-skill-names.md) carries the rename.
 
 ---
 

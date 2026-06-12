@@ -8,8 +8,8 @@ description: Thin conversational wrapper over the `claude-benchmark` CLI — det
 Drive the `claude-benchmark` binary to run the whole **Corpus** across **Before** and
 **After** (one report) and read it back with the dev. The smarts — auto-detection, corpus
 discovery, the spend plan — live in the **binary**, not here
-([ADR-0008](../../../docs/adr/0008-one-command-evaluation-and-auto-detection.md)). You route,
-confirm, and interpret. Glossary: [CONTEXT.md](../../../CONTEXT.md).
+([ADR-0008](https://github.com/nikalosa/claude-god/blob/main/docs/adr/0008-one-command-evaluation-and-auto-detection.md)). You route,
+confirm, and interpret. Glossary: [CONTEXT.md](https://github.com/nikalosa/claude-god/blob/main/CONTEXT.md).
 
 ## The three jobs
 

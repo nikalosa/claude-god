@@ -1,0 +1,10 @@
+{
+  "name": "quizgen",
+  "description": "Draft a benchmark corpus — probes plus how they're graded — from a project's docs and code, in three parallel streams. You draft; the dev finalizes.",
+  "version": "0.1.0",
+  "author": { "name": "nikalosa", "url": "https://github.com/nikalosa" },
+  "homepage": "https://github.com/nikalosa/claude-god",
+  "repository": "https://github.com/nikalosa/claude-god",
+  "license": "MIT",
+  "keywords": ["claude", "corpus", "probes", "benchmark", "eval"]
+}
