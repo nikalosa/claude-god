@@ -1,5 +1,6 @@
 /claude-benchmark
 /dist/
+DISTRIBUTION.md
 
 .benchmark/*
 
