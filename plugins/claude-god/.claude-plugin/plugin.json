@@ -1,0 +1,10 @@
+{
+  "name": "claude-god",
+  "description": "Benchmark, generate, and restructure a repo's Claude context configuration. Three skills — config-bench (A/B-benchmark two configs), quizgen (draft a benchmark corpus), config-refactor (slim CLAUDE.md without losing rules) — plus the claude-benchmark CLI, auto-downloaded on first use.",
+  "version": "0.1.0",
+  "author": { "name": "nikalosa", "url": "https://github.com/nikalosa" },
+  "homepage": "https://github.com/nikalosa/claude-god",
+  "repository": "https://github.com/nikalosa/claude-god",
+  "license": "MIT",
+  "keywords": ["claude", "claude.md", "benchmark", "context", "corpus", "refactor", "ab-testing"]
+}

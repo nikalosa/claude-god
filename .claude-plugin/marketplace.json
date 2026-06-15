@@ -10,19 +10,9 @@
   },
   "plugins": [
     {
-      "name": "config-bench",
-      "source": "./plugins/config-bench",
-      "description": "A/B-benchmark two Claude context configs (Before/After) and read back what got faster, cheaper, or regressed. Bundles the claude-benchmark CLI (auto-downloaded on first use)."
-    },
-    {
-      "name": "quizgen",
-      "source": "./plugins/quizgen",
-      "description": "Draft a benchmark corpus — probes plus how they're graded — from a project's docs and code, in three parallel streams. You draft; the dev finalizes."
-    },
-    {
-      "name": "config-refactor",
-      "source": "./plugins/config-refactor",
-      "description": "Reorganize a repo's CLAUDE.md + .claude/rules to shrink always-on context without losing any instruction. Produces a migration plan, never a silent rewrite."
+      "name": "claude-god",
+      "source": "./plugins/claude-god",
+      "description": "Benchmark, generate, and restructure a repo's Claude context config. Skills: config-bench (A/B-benchmark two configs), quizgen (draft a benchmark corpus), config-refactor (slim CLAUDE.md without losing rules). Bundles the claude-benchmark CLI, auto-downloaded on first use."
     }
   ]
 }

@@ -1,87 +1,114 @@
-# claude-benchmark
+# claude-god
 
-A/B-test two Claude Code context configurations of a repo — the bloated **Before** and
-the restructured **After** — and read what got faster, cheaper, and tighter **without
-losing the rules that matter**.
+> Benchmark, generate, and restructure a repo's **Claude Code context configuration** — so you can slim your `CLAUDE.md` and *prove* you didn't drop a rule Claude was relying on.
 
-A project's Claude context (CLAUDE.md, `.claude/rules/*`, docs, memory) grows until it's
-bloated: critical one-line rules compete for attention with thousands of lines of docs, so
-answers hedge, buried rules get silently ignored, and tokens are spent for marginal value.
-You want to restructure — shrink CLAUDE.md, split it per-area, push reference material into
-docs and skills, add better references so Claude loads the right chunk on demand. The
-blocker: no way to know whether a restructure actually helped or quietly dropped a rule
-Claude relied on. Token reduction alone is a fake win — trivially gamed by deleting rules.
+`claude-god` is an umbrella for Claude Code tooling. It ships as **one plugin with three skills**, plus a **CLI** the benchmark skill drives:
 
-**The bet:** a leaner, better-referenced environment makes Claude faster and cheaper *while
-still honoring your rules*. **The proxy:** if Claude can correctly answer "how should I wire
-a new service and its infrastructure?", we bet it will wire it correctly — so the benchmark
-mostly *asks*, rarely executes.
+| skill | what it does | invoke |
+|---|---|---|
+| [**`config-bench`**](plugins/claude-god/skills/config-bench/SKILL.md) | A/B-benchmark two context configs (Before vs After) and report what got faster, cheaper, or regressed | `/claude-god:config-bench` |
+| [**`quizgen`**](plugins/claude-god/skills/quizgen/SKILL.md) | Draft a benchmark **corpus** — probes plus how they're graded — from your docs and code | `/claude-god:quizgen` |
+| [**`config-refactor`**](plugins/claude-god/skills/config-refactor/SKILL.md) | Reorganize `CLAUDE.md` + `.claude/rules` to shrink always-on context without losing a rule | `/claude-god:config-refactor` |
 
-A drafting helper (the **Generator**) produces a **Corpus** of probes in three independent
-streams, which a human then reviews and finalizes:
+Skills are normally **invoked automatically** by Claude when they fit what you're doing — you rarely type the slash form. The CLI (`claude-benchmark`) is the engine behind `config-bench` and also runs standalone.
 
-1. **Rule-based probes** — from your selected docs only. *"How are monetary amounts typed?"*
-   The answer lives in the docs; each environment's answer is graded right/wrong.
-2. **Open-ended probes** — system/design questions, generated with the whole codebase in
-   view. *"How do the betting and ledger services communicate?"* No single right answer; the
-   two environments' answers are compared head-to-head, alongside cost/token/time **Numbers**.
-3. **Plan probes** — Claude produces a step-by-step plan (no execution); Before's plan and
-   After's plan are compared, alongside **Numbers**.
+## Why
 
-Every probe runs in both environments (N=3 each, headless, read-only), and the report
-measures two things:
+A project's Claude context (`CLAUDE.md`, `.claude/rules/*`, docs, memory) grows until it's bloated: critical one-line rules compete with thousands of lines of docs, so answers hedge, buried rules get silently ignored, and tokens are spent for marginal value. You want to restructure — shrink `CLAUDE.md`, split it per-area, push reference material into docs Claude loads on demand.
 
-- **Efficiency — the main goal.** The **Numbers**: tokens, time, money, and tool calls
-  (fewer, and aimed at the right chunk instead of grepping around). Exact and numeric.
-- **Quality — the guardrail.** Are the rules still honored, and do the answers and plans
-  read *better*? Right/wrong per rule; head-to-head preference for the rest.
+The blocker: no way to know whether a restructure actually helped or quietly dropped a rule. Token reduction alone is a fake win — trivially gamed by deleting rules. `claude-god` closes that gap: `config-refactor` does the restructure, `config-bench` proves the rules survived and the work got leaner.
 
-The win is **efficiency up with quality held or improved**. The output is a **report a human
-reads** — Numbers, rule answers side by side, design/plan answers compared — and you decide.
-The benchmark never gates.
+## Install
 
-Full design: [docs/PRD.md](docs/PRD.md). Glossary: [CONTEXT.md](CONTEXT.md). Key decisions:
-[docs/adr/](docs/adr/).
+### As a Claude Code plugin (recommended)
 
-## Generating the corpus
+```sh
+/plugin marketplace add nikalosa/claude-god
+/plugin install claude-god@claude-god
+```
 
-You don't hand-write every probe. The **`quizgen`** skill (the **Generator**) drafts
-a corpus from the **Before** branch in three independent streams, then you review and finalize:
+This installs all three skills. On the first benchmark run, the `claude-benchmark` CLI is **auto-downloaded** (checksum-verified) — no Go toolchain required.
 
-- **Rule-based** — for *each* selected doc, a separate subagent sees **only that doc** (no
-  code) and extracts the important, easily-dropped rules → a question, its doc-stated answer,
-  and a check (regex for hard tokens, rubric for prose).
-- **Open-ended** — one pass over the **whole project** drafts system/design questions (service
-  communication, data flow, infrastructure, coupling vs facade vs direct DB access).
-- **Plan** — one pass over the **whole project** drafts realistic tasks to plan step-by-step.
+**Prerequisites:** an authenticated `claude` CLI and `git` on your PATH. **No API key** — the tool reuses your existing Claude login.
 
-You then talk to the skill — edit probes, drop any rule-based probe Claude can answer
-*without* its doc, confirm severities (reading priority, never a gate) — and freeze the set
-onto Before. Regeneration appends new probes; it never rewrites the frozen corpus. Details:
-[`plugins/quizgen`](plugins/quizgen/skills/quizgen/SKILL.md).
+### CLI only
 
-## Status
+Go users:
 
-Pre-v1. Scope order: **Rule-based probes → Open-ended probes → Plan probes**; executing
-tasks for real is deferred. Tracked in GitHub issues #1–#7.
+```sh
+go install github.com/nikalosa/claude-god/cmd/claude-benchmark@latest
+```
 
-## Build & run
+Otherwise download a prebuilt binary (darwin/linux × amd64/arm64) from [Releases](https://github.com/nikalosa/claude-god/releases). Windows: use WSL — native Windows is not yet supported.
+
+## Quick start
+
+A full Before/After benchmark, end to end, inside the repo you want to test:
+
+**1. Draft a corpus** — ask Claude to generate one, or invoke the skill:
+
+```
+/claude-god:quizgen
+```
+
+It drafts probes from your docs and code in three streams, you review and edit, and it freezes the set to `.benchmark/corpus/*.yaml`.
+
+**2. Make your change** on a branch — e.g. slim `CLAUDE.md`. Let `config-refactor` plan it for you:
+
+```
+/claude-god:config-refactor
+```
+
+**3. Run the benchmark** — the skill, or the CLI directly:
+
+```sh
+claude-benchmark            # auto-detects Before/After from git
+```
+
+It prints a spend plan and waits for confirmation before spending anything:
+
+```
+Benchmark plan
+  Before:      merge-base(main, HEAD)
+  After:       HEAD
+  Corpus:      .benchmark/corpus/self.yaml (12 probe(s))
+  Samples:     1 per environment
+  Concurrency: 8
+  Runs:        24 claude -p calls (12 probes × 1 samples × 2 envs)
+Proceed? [y/N]
+```
+
+Every probe runs in both configs — headless and read-only.
+
+**4. Read the report.** Side by side: efficiency **Numbers** (tokens, time, cost, tool-calls), each rule PASS/FAIL in Before vs After, and head-to-head preference for open-ended and plan probes. The win is **efficiency up, rules held**. You decide — the benchmark reports, it never gates.
+
+Override anything: `--before`/`--after` (committishes), `--corpus <file>`, `--samples N`, `--yes` (skip the prompt). The `run`, `snapshot`, and `calibrate` subcommands are for power users. Full reference: `claude-benchmark --help`.
+
+## How it grades
+
+Three kinds of probe, generated as independent streams ([CONTEXT.md](CONTEXT.md) is the glossary):
+
+- **Rule-based** — questions whose answer lives in your docs (*"how are monetary amounts typed?"*). Each config graded right/wrong on its own. A PASS→FAIL flip is a **regression**.
+- **Open-ended** — system/design questions with no fixed answer (*"how do the betting and ledger services communicate?"*). The two configs' answers are compared head-to-head by a **Judge**, alongside Numbers.
+- **Plan** — Claude produces a step-by-step plan (no execution); Before's plan vs After's, by preference plus Numbers.
+
+The proxy: if Claude can correctly *answer* how to wire a new service, it will likely wire it correctly — so the benchmark mostly asks, rarely executes.
+
+## Design docs
+
+- **[docs/PRD.md](docs/PRD.md)** — full design and locked decisions
+- **[CONTEXT.md](CONTEXT.md)** — vocabulary / glossary (read first when contributing)
+- **[docs/adr/](docs/adr/)** — architecture decision records
+
+## Build from source
 
 Requires **Go 1.24+** (earlier internal linkers omit `LC_UUID`, which recent macOS rejects at load).
 
-One command benchmarks the current repo end-to-end — it auto-discovers the corpus, auto-detects
-**Before**/**After** from git, prints a spend plan, and reports ([ADR-0008](docs/adr/0008-one-command-evaluation-and-auto-detection.md)):
-
 ```sh
 go build ./...
-go run ./cmd/claude-benchmark            # bare: auto-detect everything, then confirm
+go test ./...
+go run ./cmd/claude-benchmark        # bare: auto-detect everything, then confirm
 ```
-
-**Before/After** default from git state — a dirty tree compares `HEAD` vs the working tree
-(uncommitted and new untracked env files included); a clean tree compares `merge-base(default, HEAD)`
-vs `HEAD`. Override either with `--before`/`--after`; pick a corpus with `--corpus`; skip the
-prompt with `--yes`. The `run`, `snapshot`, and `calibrate` subcommands remain for power users
-(e.g. `run --level l2 --corpus examples/corpus/plan-smoke.yaml` to grade plan/open-ended probes).
 
 ## Layout
 
@@ -89,14 +116,16 @@ prompt with `--yes`. The `run`, `snapshot`, and `calibrate` subcommands remain f
 cmd/claude-benchmark/   CLI entrypoint (thin; delegates to internal/cli)
 internal/
   cli/          cobra command tree (bare benchmark + run/calibrate/snapshot)
-  autodetect/   resolve Before/After committishes from git state  (ADR-0008)
-  harness/      isolated per-probe run: worktree, memory swap, claude -p, diff capture  (#4)
-  parser/       stream-json JSONL -> RunRecord; shape notes + golden fixtures in testdata  (#3)
-  dsl/          YAML predicate DSL -> per-rule PASS/FAIL  (#5+)
-  judge/        Anthropic-API grading escape hatch (rubric check + preference comparison)  (#8+)
-  aggregator/   N=3 runs -> median stats + majority-vote outcomes  (#6)
-  report/       markdown (default) + JSON rendering  (#5+)
+  autodetect/   resolve Before/After committishes from git state
+  harness/      isolated per-probe run: worktree, memory swap, claude -p, diff capture
+  parser/       stream-json JSONL -> RunRecord
+  dsl/          YAML predicate DSL -> per-rule PASS/FAIL
+  judge/        LLM grading (rubric check + preference comparison) over claude -p
+  aggregator/   N samples -> median stats + majority-vote outcomes
+  report/       markdown (default) + JSON rendering
+plugins/claude-god/     the Claude Code plugin: the three skills + the bin/ wrapper
 ```
 
-Most `internal/` packages are stubs today — each holds a doc comment stating its role
-and the issue that implements it.
+## License
+
+MIT — see [LICENSE](LICENSE).
