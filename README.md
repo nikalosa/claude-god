@@ -85,7 +85,18 @@ Every probe runs in both versions — headless and read-only.
 
 **4. Read the report.** Side by side: efficiency **Numbers** (tokens, time, cost, tool-calls), each rule PASS/FAIL in Before vs After, and head-to-head preference for open-ended and plan probes. The win is **efficiency up, rules held** — and you decide.
 
-Override anything: `--before`/`--after` (committishes), `--corpus <file>`, `--samples N`, `--yes` (skip the prompt). The `run`, `snapshot`, and `calibrate` subcommands are for power users. Full reference: `claude-benchmark --help`.
+Override anything: `--before`/`--after` (committishes), `--corpus <file>`, `--samples N`, `--kind` (which probe kinds run — CSV of `rule_based,open_ended,plan`, default all), `--yes` (skip the prompt). The `run`, `snapshot`, and `calibrate` subcommands are for power users. Full reference: `claude-benchmark --help`.
+
+### Score a single config (no A/B)
+
+No baseline to compare against? `assess` grades **one** config against the corpus and prints an absolute scorecard — each rule PASS/FAIL, plus its efficiency Numbers, with no Before/After column:
+
+```sh
+claude-benchmark assess              # scores the current config (working tree, or HEAD if clean)
+claude-benchmark assess --ref v2     # or any branch / commit
+```
+
+Rule-based probes grade on their own. Open-ended and plan probes need two answers to compare head-to-head, so single-env they run for Numbers but list as *not graded* — add `--kind rule_based` to skip them entirely. The `config-bench` skill routes here automatically when you ask to "score/assess my current config."
 
 ## How it grades
 
@@ -118,7 +129,7 @@ go run ./cmd/claude-benchmark        # bare: auto-detect everything, then confir
 ```
 cmd/claude-benchmark/   CLI entrypoint (thin; delegates to internal/cli)
 internal/
-  cli/          cobra command tree (bare benchmark + run/calibrate/snapshot)
+  cli/          cobra command tree (bare benchmark + assess + run/calibrate/snapshot)
   autodetect/   resolve Before/After committishes from git state
   harness/      isolated per-probe run: worktree, memory swap, claude -p, diff capture
   parser/       stream-json JSONL -> RunRecord

@@ -12,7 +12,7 @@
     {
       "name": "claude-god",
       "source": "./plugins/claude-god",
-      "description": "Benchmark, generate, and restructure a repo's Claude context config. Skills: config-bench (A/B-benchmark two configs), quizgen (draft a benchmark corpus), config-refactor (slim CLAUDE.md without losing rules). Bundles the claude-benchmark CLI, auto-downloaded on first use."
+      "description": "Benchmark, generate, and restructure a repo's Claude context config. Skills: config-bench (A/B-benchmark two configs, or score one), quizgen (draft a benchmark corpus), config-refactor (slim CLAUDE.md without losing rules). Bundles the claude-benchmark CLI, auto-downloaded on first use."
     }
   ]
 }
