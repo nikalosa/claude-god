@@ -24,6 +24,7 @@ import (
 
 var (
 	flagLevel         string
+	flagKind          string
 	flagTarget        string
 	flagCorpus        string
 	flagBefore        string
@@ -47,6 +48,10 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		kinds, err := parseKinds(flagKind)
+		if err != nil {
+			return err
+		}
 		if flagCorpus == "" {
 			return fmt.Errorf("--corpus is required")
 		}
@@ -67,6 +72,10 @@ var runCmd = &cobra.Command{
 		}
 		if len(probes) == 0 {
 			return fmt.Errorf("corpus has no probes")
+		}
+		probes, err = filterByKind(probes, kinds)
+		if err != nil {
+			return err
 		}
 
 		j, err := judgeFor(probes, levels)
@@ -331,6 +340,7 @@ func validateConcurrency(n int) error {
 func init() {
 	f := runCmd.Flags()
 	f.StringVar(&flagLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.StringVar(&flagKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagBefore, "before", "benchmark/before", "branch holding the pre-restructure baseline")

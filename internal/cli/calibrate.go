@@ -13,6 +13,7 @@ import (
 
 var (
 	flagCalLevel       string
+	flagCalKind        string
 	flagCalTarget      string
 	flagCalCorpus      string
 	flagCalBranch      string
@@ -30,6 +31,10 @@ Numbers spread — the false-positive rate a real Before-vs-After run stands on.
 Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		levels, err := parseLevels(flagCalLevel)
+		if err != nil {
+			return err
+		}
+		kinds, err := parseKinds(flagCalKind)
 		if err != nil {
 			return err
 		}
@@ -54,6 +59,10 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 		if len(probes) == 0 {
 			return fmt.Errorf("corpus has no probes")
 		}
+		probes, err = filterByKind(probes, kinds)
+		if err != nil {
+			return err
+		}
 
 		j, err := judgeFor(probes, levels)
 		if err != nil {
@@ -74,6 +83,7 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 func init() {
 	f := calibrateCmd.Flags()
 	f.StringVar(&flagCalLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.StringVar(&flagCalKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagCalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCalCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagCalBranch, "branch", "main", "the Environment branch to calibrate (run Before-vs-Before)")

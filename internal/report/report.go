@@ -117,6 +117,155 @@ func RenderCalibration(verdicts []aggregator.Verdict, aggs []aggregator.Aggregat
 	return b.String()
 }
 
+// RenderAssessment renders the single-environment scorecard (ADR-0012): each
+// rule PASS/FAIL on its own (no Before/After, no Status flip), then single-env
+// Numbers with no Δ column. Comparative probes (open_ended/plan) carry no rules,
+// so they have no single-env grade — they are run for Numbers and listed as not
+// graded. Never gates.
+func RenderAssessment(aggs []aggregator.AggregatedOutcome, envDesc string, concurrency int) string {
+	var passed, failed, comparative int
+	for _, a := range aggs {
+		if len(a.Before.Rules) == 0 {
+			comparative++
+			continue
+		}
+		for _, r := range a.Before.Rules {
+			if r.Pass {
+				passed++
+			} else {
+				failed++
+			}
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintln(&b, "# claude-benchmark assessment (single environment)")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Environment: %s\n", envDesc)
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "%d rule(s) · %d passed · %d failed · %d comparative probe(s) not graded\n",
+		passed+failed, passed, failed, comparative)
+	fmt.Fprintln(&b)
+
+	renderScorecard(&b, aggs)
+	renderSingleNumbers(&b, aggregator.ComputeDeltas(aggs), concurrency)
+	renderSinglePerProbe(&b, aggs, concurrency)
+	renderNotGraded(&b, aggs)
+	return b.String()
+}
+
+// renderScorecard renders the flat per-rule PASS/FAIL table for one Environment,
+// sorted by probe then rule. No flip Status, no Δ — each rule stands on its own.
+func renderScorecard(b *strings.Builder, aggs []aggregator.AggregatedOutcome) {
+	type row struct {
+		probe string
+		rule  aggregator.AggregatedRuleResult
+	}
+	var rows []row
+	for _, a := range aggs {
+		for _, r := range a.Before.Rules {
+			rows = append(rows, row{a.ProbeID, r})
+		}
+	}
+	fmt.Fprintln(b, "## Scorecard")
+	fmt.Fprintln(b)
+	if len(rows) == 0 {
+		fmt.Fprintln(b, "_no rule-based probes — Numbers only_")
+		fmt.Fprintln(b)
+		return
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].probe != rows[j].probe {
+			return rows[i].probe < rows[j].probe
+		}
+		return rows[i].rule.RuleID < rows[j].rule.RuleID
+	})
+	fmt.Fprintln(b, "| Probe | Rule | Severity | Result |")
+	fmt.Fprintln(b, "|---|---|---|---|")
+	for _, r := range rows {
+		side := aggregator.VerdictSide{Pass: r.rule.Pass, PassCount: r.rule.PassCount, Total: r.rule.Total, Disagreement: r.rule.Disagreement}
+		fmt.Fprintf(b, "| %s | `%s` | %s | %s |\n", r.probe, r.rule.RuleID, r.rule.Severity, fmtSide(side))
+	}
+	fmt.Fprintln(b)
+}
+
+// renderSingleNumbers renders the one Environment's Numbers as a Value column
+// (no Δ) — it reads the Before fields of ComputeDeltas, since assess populates
+// only the Before side.
+func renderSingleNumbers(b *strings.Builder, d aggregator.Deltas, concurrency int) {
+	durLabel := "Duration (ms)"
+	if concurrency > 1 {
+		durLabel += " ⚠ advisory"
+	}
+	fmt.Fprintln(b, "## Numbers")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "| Metric | Value |")
+	fmt.Fprintln(b, "|---|---:|")
+	fmt.Fprintf(b, "| Total cost (USD) | %.6f |\n", d.CostBefore)
+	fmt.Fprintf(b, "| Input tokens (incl. cache) | %d |\n", d.InputTokBefore)
+	fmt.Fprintf(b, "| Output tokens | %d |\n", d.OutputTokBefore)
+	fmt.Fprintf(b, "| %s | %d |\n", durLabel, d.DurationMsBefore)
+	fmt.Fprintf(b, "| Tool calls | %d |\n", d.ToolCallsBefore)
+	fmt.Fprintf(b, "| Context window — base (turn-1) | %d |\n", d.BaseCtxBefore)
+	fmt.Fprintf(b, "| Context window — peak ⚠ noisy | %d |\n", d.PeakCtxBefore)
+	fmt.Fprintln(b)
+	if concurrency > 1 {
+		fmt.Fprintf(b, "> ⚠ Duration measured under --concurrency %d; advisory, not comparable. Rerun with --concurrency 1 for authoritative timing. Cost and tokens are exact regardless.\n\n", concurrency)
+	}
+	fmt.Fprintln(b, "> Context window = mean per-probe resident tokens. **Base (turn-1)** is the config-only prompt (system + CLAUDE.md + rules + memory + probe) before any exploration — deterministic, the clean config signal. **Peak** is the exploration high-water mark and is run-to-run noisy.")
+	fmt.Fprintln(b)
+}
+
+// renderSinglePerProbe renders the per-probe Numbers for one Environment — one
+// row per probe, single values, no Δ.
+func renderSinglePerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcome, concurrency int) {
+	if len(aggs) == 0 {
+		return
+	}
+	durHdr := "Duration (ms)"
+	if concurrency > 1 {
+		durHdr += " ⚠"
+	}
+	sorted := append([]aggregator.AggregatedOutcome(nil), aggs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ProbeID < sorted[j].ProbeID })
+
+	fmt.Fprintln(b, "## Per-probe Numbers")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "_Medians across samples._")
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "| Probe | %s | Cost (USD) | Input tok | Output tok | Tool calls | Base ctx |\n", durHdr)
+	fmt.Fprintln(b, "|---|---:|---:|---:|---:|---:|---:|")
+	for _, a := range sorted {
+		fmt.Fprintf(b, "| %s | %d | %.4f | %d | %d | %d | %d |\n", a.ProbeID,
+			a.Before.MedianDurationMs, a.Before.MedianCost, a.Before.MedianInputTok,
+			a.Before.MedianOutputTok, a.Before.MedianToolCalls, a.Before.MedianBaseCtx)
+	}
+	fmt.Fprintln(b)
+}
+
+// renderNotGraded lists the comparative probes (open_ended/plan) that have no
+// single-env grade — they need an A/B comparison. Omitted when there are none.
+func renderNotGraded(b *strings.Builder, aggs []aggregator.AggregatedOutcome) {
+	var ids []string
+	for _, a := range aggs {
+		if len(a.Before.Rules) == 0 {
+			ids = append(ids, a.ProbeID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sort.Strings(ids)
+	fmt.Fprintln(b, "## Not graded (comparative — needs A/B)")
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "_open_ended/plan probes are judged head-to-head; one Environment has nothing to prefer against. Run the A/B benchmark to compare two configs. Their Numbers are above._")
+	fmt.Fprintln(b)
+	for _, id := range ids {
+		fmt.Fprintf(b, "- %s\n", id)
+	}
+	fmt.Fprintln(b)
+}
+
 func flakyReason(v aggregator.Verdict) string {
 	if v.Status == aggregator.Regression || v.Status == aggregator.NewPass {
 		return "flipped on identical input"

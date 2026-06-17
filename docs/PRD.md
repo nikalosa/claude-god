@@ -83,7 +83,7 @@ Packages under `internal/`:
 - **judge** — `claude -p` empty-dir backend for Rubric check and Preference comparison, behind one interface (swappable to the Anthropic API later if true temp-0 is ever needed).
 - **aggregator** — N=3 / N=5 run records → median Numbers + majority-vote outcomes.
 - **report** — markdown + JSON.
-- **cli** — cobra tree. The bare command (no subcommand) auto-discovers the corpus, auto-detects Before/After, prints a spend plan, confirms, and reports; `run`/`snapshot`/`calibrate` survive as power-user overrides (pin an Environment to a branch, Before-vs-Before noise floor).
+- **cli** — cobra tree. The bare command (no subcommand) auto-discovers the corpus, auto-detects Before/After, prints a spend plan, confirms, and reports; `assess` scores one Environment with no A/B (absolute rule PASS/FAIL + single-env Numbers, no Δ — [ADR-0012](adr/0012-single-env-assess-and-kind-selector.md)); `run`/`snapshot`/`calibrate` survive as power-user overrides (pin an Environment to a branch, Before-vs-Before noise floor). `--kind` subsets the corpus to chosen probe kinds in every mode.
 
 harness, parser, dsl, and aggregator are testable with no live Claude — replay fixtures of stream-json + git-diff suffice.
 

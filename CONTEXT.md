@@ -78,6 +78,10 @@ A rule that flipped FAIL → PASS — "what improved." Read by the dev.
 **Disagreement**:
 The N samples of one rule in one environment splitting (not unanimous). Surfaced as flakiness, distinct from a clean flip.
 
+**Assessment**:
+Scoring **one Environment** against the **Corpus** with no Before/After — the answer to *"assess current config with this corpus"* (the `assess` command). **Rule-based probes** grade absolutely (per-rule PASS/FAIL, the same **Rules** path); **Open-ended** and **Plan probes** have no single-env grade — a **Preference comparison** needs two answers — so they run for **Numbers** only and are listed as not graded. The report is a flat scorecard with no Δ column. Distinct from the A/B benchmark (bare / `run`) and from **calibration** (Before-vs-Before noise).
+_Avoid_: single run (that is a **Run**), evaluation (overloaded — the tool's retired verb).
+
 ### Grading engines
 
 **Judge**:

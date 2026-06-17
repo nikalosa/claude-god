@@ -143,6 +143,19 @@ func NeedsJudge(probes []Probe) bool {
 		if p.Comparative() {
 			return true
 		}
+		if NeedsRubricJudge([]Probe{p}) {
+			return true
+		}
+	}
+	return false
+}
+
+// NeedsRubricJudge reports whether any rule carries a judge_rubric check. It is
+// the single-env judge test: assess never runs a Preference comparison (one
+// answer has nothing to prefer against), so comparative probes need no judge —
+// only an absolute judge_rubric rule does.
+func NeedsRubricJudge(probes []Probe) bool {
+	for _, p := range probes {
 		for _, r := range p.Rules {
 			for _, c := range r.Checks {
 				if _, ok := c.(*JudgeRubric); ok {

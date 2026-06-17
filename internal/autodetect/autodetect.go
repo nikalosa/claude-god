@@ -99,6 +99,44 @@ func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (R
 	return res, nil
 }
 
+// ResolveOne resolves a single Environment ref for the single-env assess (no
+// comparison): the override when set, else the working tree — temp-committed when
+// dirty so uncommitted and untracked env edits count, HEAD when clean. It mirrors
+// the After half of Resolve without its A/B "nothing to compare" error, so a
+// clean default branch still assesses fine.
+func ResolveOne(ctx context.Context, repo, override string) (ref, desc string, err error) {
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve target: %w", err)
+	}
+	if _, err := git(ctx, abs, nil, "rev-parse", "--git-dir"); err != nil {
+		return "", "", fmt.Errorf("%s is not a git repository", abs)
+	}
+	if override != "" {
+		sha, err := commitOf(ctx, abs, override)
+		if err != nil {
+			return "", "", fmt.Errorf("--ref %q: %w", override, err)
+		}
+		return sha, label(override, sha), nil
+	}
+	dirty, err := isDirty(ctx, abs)
+	if err != nil {
+		return "", "", err
+	}
+	if dirty {
+		sha, err := tempCommitWorkingTree(ctx, abs)
+		if err != nil {
+			return "", "", fmt.Errorf("capture working tree: %w", err)
+		}
+		return sha, "working tree — uncommitted edits (" + short(sha) + ")", nil
+	}
+	sha, err := commitOf(ctx, abs, "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	return sha, label("HEAD", sha), nil
+}
+
 // tempCommitWorkingTree snapshots the working tree (tracked edits + untracked
 // files, minus .gitignore) as a commit parented on HEAD, using a throwaway
 // index so the target's real index, HEAD, and working tree are untouched. The

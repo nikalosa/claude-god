@@ -22,7 +22,8 @@ grades each rule pass/fail, and reports behavioral-fidelity and cost deltas.
 
 Run bare (no subcommand) to benchmark the current repo end-to-end: it
 auto-discovers the corpus, auto-detects Before/After from git, and prints the
-report. run/snapshot/calibrate remain for power users. See docs/PRD.md.`,
+report. assess scores one config (no A/B); run/snapshot/calibrate remain for
+power users. See docs/PRD.md.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

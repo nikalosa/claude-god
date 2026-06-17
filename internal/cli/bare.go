@@ -23,6 +23,7 @@ import (
 
 var (
 	flagEvalLevel       string
+	flagEvalKind        string
 	flagEvalTarget      string
 	flagEvalCorpus      string
 	flagEvalBefore      string
@@ -38,6 +39,10 @@ var (
 // flag is an optional override of an auto-detected default.
 func defaultRunE(cmd *cobra.Command, _ []string) error {
 	levels, err := parseLevels(flagEvalLevel)
+	if err != nil {
+		return err
+	}
+	kinds, err := parseKinds(flagEvalKind)
 	if err != nil {
 		return err
 	}
@@ -69,6 +74,10 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 	}
 	if len(probes) == 0 {
 		return fmt.Errorf("corpus %s has no probes", corpusPath)
+	}
+	probes, err = filterByKind(probes, kinds)
+	if err != nil {
+		return err
 	}
 
 	j, err := judgeFor(probes, levels)
@@ -198,6 +207,7 @@ func init() {
 	rootCmd.Args = cobra.NoArgs
 	f := rootCmd.Flags()
 	f.StringVar(&flagEvalLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.StringVar(&flagEvalKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagEvalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagEvalCorpus, "corpus", "", "corpus YAML (default: auto-discover .benchmark/corpus/*.yaml)")
 	f.StringVar(&flagEvalBefore, "before", "", "baseline committish (default: auto-detect from git)")

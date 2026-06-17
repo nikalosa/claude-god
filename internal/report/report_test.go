@@ -157,6 +157,75 @@ func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
 	}
 }
 
+// TestRenderAssessment checks the single-env scorecard: per-rule PASS/FAIL with
+// no A/B framing, single-env Numbers (a Value column, no Δ), and comparative
+// probes listed as not graded.
+func TestRenderAssessment(t *testing.T) {
+	aggs := []aggregator.AggregatedOutcome{
+		{ProbeID: "rules_probe", Before: aggregator.AggregatedEnv{
+			MedianCost: 0.12, MedianInputTok: 1500, MedianOutputTok: 90, MedianDurationMs: 3000,
+			MedianToolCalls: 5, MedianBaseCtx: 12000, MedianPeakCtx: 40000,
+			Rules: []aggregator.AggregatedRuleResult{
+				{RuleID: "kept", Severity: dsl.Critical, Pass: true, PassCount: 3, Total: 3},
+				{RuleID: "dropped", Severity: dsl.High, Pass: false, PassCount: 0, Total: 3},
+			},
+		}},
+		{ProbeID: "design_probe", Before: aggregator.AggregatedEnv{
+			MedianCost: 0.50, MedianInputTok: 3000, MedianOutputTok: 200, MedianDurationMs: 9000,
+			MedianToolCalls: 18, MedianBaseCtx: 12000, MedianPeakCtx: 80000,
+		}},
+	}
+	md := RenderAssessment(aggs, "working tree (abc1234)", 1)
+
+	if !strings.Contains(md, "# claude-benchmark assessment (single environment)") {
+		t.Fatalf("missing assessment title:\n%s", md)
+	}
+	if !strings.Contains(md, "working tree (abc1234)") {
+		t.Errorf("env description not rendered:\n%s", md)
+	}
+	if !strings.Contains(md, "2 rule(s) · 1 passed · 1 failed · 1 comparative probe(s) not graded") {
+		t.Errorf("summary counts wrong:\n%s", md)
+	}
+	for _, want := range []string{"## Scorecard", "`kept`", "`dropped`", "PASS (3/3)", "FAIL (0/3)", "| Result |"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("scorecard missing %q:\n%s", want, md)
+		}
+	}
+	if !strings.Contains(md, "## Numbers") || !strings.Contains(md, "| Metric | Value |") {
+		t.Errorf("single-env Numbers section (no Δ) missing:\n%s", md)
+	}
+	if !strings.Contains(md, "## Not graded (comparative — needs A/B)") || !strings.Contains(md, "design_probe") {
+		t.Errorf("comparative not-graded list missing:\n%s", md)
+	}
+
+	// The scorecard section must carry no A/B framing: no Before/After/Status/Δ.
+	start := strings.Index(md, "## Scorecard")
+	section := md[start:]
+	if end := strings.Index(section[len("## Scorecard"):], "\n## "); end >= 0 {
+		section = section[:len("## Scorecard")+end]
+	}
+	for _, banned := range []string{"Before", "After", "Status", "Δ", "regression", "new pass"} {
+		if strings.Contains(section, banned) {
+			t.Errorf("scorecard must not contain A/B framing %q:\n%s", banned, section)
+		}
+	}
+}
+
+// TestRenderAssessment_NumbersOnly: a corpus of only comparative probes has no
+// scorecard rows but still reports Numbers and the not-graded list.
+func TestRenderAssessment_NumbersOnly(t *testing.T) {
+	aggs := []aggregator.AggregatedOutcome{
+		{ProbeID: "design", Before: aggregator.AggregatedEnv{MedianCost: 0.3, MedianBaseCtx: 9000}},
+	}
+	md := RenderAssessment(aggs, "HEAD (deadbeef)", 1)
+	if !strings.Contains(md, "_no rule-based probes — Numbers only_") {
+		t.Errorf("expected empty-scorecard marker:\n%s", md)
+	}
+	if !strings.Contains(md, "0 rule(s) · 0 passed · 0 failed · 1 comparative probe(s) not graded") {
+		t.Errorf("summary wrong for Numbers-only:\n%s", md)
+	}
+}
+
 // TestRenderDeltas_DurationAdvisory checks that Duration is flagged advisory
 // under concurrency and left clean at --concurrency 1 — the report must never
 // silently present an inflated timing number as comparable.
