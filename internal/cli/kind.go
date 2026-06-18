@@ -12,7 +12,7 @@ import (
 const allKinds = "rule_based,open_ended,plan"
 
 // parseKinds splits the --kind CSV into the enabled probe-kind set. It selects
-// which probes run; it does not change grading (mirrors parseLevels).
+// which probes run; it does not change grading.
 func parseKinds(s string) (map[dsl.ProbeKind]bool, error) {
 	set := map[dsl.ProbeKind]bool{}
 	for _, tok := range strings.Split(s, ",") {

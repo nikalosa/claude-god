@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	flagEvalLevel       string
+	flagEvalJudge       bool
 	flagEvalKind        string
 	flagEvalTarget      string
 	flagEvalCorpus      string
@@ -38,10 +38,6 @@ var (
 // plan, confirms, then runs the whole A/B benchmark and prints the report. Every
 // flag is an optional override of an auto-detected default.
 func defaultRunE(cmd *cobra.Command, _ []string) error {
-	levels, err := parseLevels(flagEvalLevel)
-	if err != nil {
-		return err
-	}
 	kinds, err := parseKinds(flagEvalKind)
 	if err != nil {
 		return err
@@ -80,7 +76,7 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	j, err := judgeFor(probes, levels)
+	j, err := judgeFor(probes, flagEvalJudge)
 	if err != nil {
 		return err
 	}
@@ -206,7 +202,7 @@ func init() {
 	rootCmd.RunE = defaultRunE
 	rootCmd.Args = cobra.NoArgs
 	f := rootCmd.Flags()
-	f.StringVar(&flagEvalLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.BoolVar(&flagEvalJudge, "judge", false, "build the Judge for open-ended/plan/judge_rubric corpora (adds claude -p calls — extra spend)")
 	f.StringVar(&flagEvalKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagEvalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagEvalCorpus, "corpus", "", "corpus YAML (default: auto-discover .benchmark/corpus/*.yaml)")

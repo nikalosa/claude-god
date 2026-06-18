@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	flagAssessLevel       string
+	flagAssessJudge       bool
 	flagAssessKind        string
 	flagAssessTarget      string
 	flagAssessCorpus      string
@@ -48,10 +48,6 @@ benchmark (the bare command or run) to compare two configs.`,
 }
 
 func assessRunE(cmd *cobra.Command, _ []string) error {
-	levels, err := parseLevels(flagAssessLevel)
-	if err != nil {
-		return err
-	}
 	kinds, err := parseKinds(flagAssessKind)
 	if err != nil {
 		return err
@@ -90,7 +86,7 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	j, err := judgeForAssess(probes, levels)
+	j, err := judgeForAssess(probes, flagAssessJudge)
 	if err != nil {
 		return err
 	}
@@ -133,12 +129,12 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 // judgeForAssess builds a Judge iff a rule carries a judge_rubric check. assess
 // never runs a Preference comparison, so comparative probes need no judge — only
 // an absolute rubric rule does (distinct from judgeFor, which the A/B path uses).
-func judgeForAssess(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
+func judgeForAssess(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	if !dsl.NeedsRubricJudge(probes) {
 		return nil, nil
 	}
-	if !levels["l2"] {
-		return nil, fmt.Errorf("corpus has judge_rubric rules; add l2 to --level (got %q)", flagAssessLevel)
+	if !judgeOn {
+		return nil, fmt.Errorf("corpus has judge_rubric rules; pass --judge to enable the Judge (adds claude -p calls — extra spend)")
 	}
 	return judge.New(judge.NewClaudeBackend()), nil
 }
@@ -243,7 +239,7 @@ func printAssessPlan(w io.Writer, envDesc, corpus string, probes []dsl.Probe, sa
 
 func init() {
 	f := assessCmd.Flags()
-	f.StringVar(&flagAssessLevel, "level", "l1", "l1, or l2 to build the judge (judge_rubric rules)")
+	f.BoolVar(&flagAssessJudge, "judge", false, "build the Judge for judge_rubric rules (adds claude -p calls — extra spend)")
 	f.StringVar(&flagAssessKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagAssessTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagAssessCorpus, "corpus", "", "corpus YAML (default: auto-discover .benchmark/corpus/*.yaml)")

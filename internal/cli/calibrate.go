@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	flagCalLevel       string
+	flagCalJudge       bool
 	flagCalKind        string
 	flagCalTarget      string
 	flagCalCorpus      string
@@ -30,10 +30,6 @@ reports the rules that come out flaky (non-stable on identical input) plus the
 Numbers spread — the false-positive rate a real Before-vs-After run stands on.
 Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		levels, err := parseLevels(flagCalLevel)
-		if err != nil {
-			return err
-		}
 		kinds, err := parseKinds(flagCalKind)
 		if err != nil {
 			return err
@@ -64,7 +60,7 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 			return err
 		}
 
-		j, err := judgeFor(probes, levels)
+		j, err := judgeFor(probes, flagCalJudge)
 		if err != nil {
 			return err
 		}
@@ -82,7 +78,7 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 
 func init() {
 	f := calibrateCmd.Flags()
-	f.StringVar(&flagCalLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.BoolVar(&flagCalJudge, "judge", false, "build the Judge for open-ended/plan/judge_rubric corpora (adds claude -p calls — extra spend)")
 	f.StringVar(&flagCalKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagCalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCalCorpus, "corpus", "", "path to the probe corpus YAML file")

@@ -372,7 +372,7 @@ func TestLoadCorpus_ShippedCorpora(t *testing.T) {
 }
 
 // TestLoadCorpus_L2Example loads the shipped L2 example and confirms it carries
-// a judge-backed rule (so NeedsJudge would require --level l2).
+// a judge-backed rule (so NeedsJudge would require --judge).
 func TestLoadCorpus_L2Example(t *testing.T) {
 	probes, err := LoadCorpus("../../examples/corpus/l2-smoke.yaml")
 	if err != nil {
@@ -396,7 +396,7 @@ func TestLoadCorpus_L2Example(t *testing.T) {
 }
 
 // TestLoadCorpus_PlanExample loads the shipped plan example and confirms it
-// carries a plan probe, so NeedsJudge requires a judge (run via --level l2).
+// carries a plan probe, so NeedsJudge requires a judge (run via --judge).
 func TestLoadCorpus_PlanExample(t *testing.T) {
 	probes, err := LoadCorpus("../../examples/corpus/plan-smoke.yaml")
 	if err != nil {

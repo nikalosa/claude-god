@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -23,7 +22,7 @@ import (
 )
 
 var (
-	flagLevel         string
+	flagJudge         bool
 	flagKind          string
 	flagTarget        string
 	flagCorpus        string
@@ -42,12 +41,8 @@ type runFunc func(ctx context.Context, branch, prompt string) (*parser.RunRecord
 
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run the A/B benchmark for the given tiers",
+	Short: "Run the A/B benchmark across Before and After",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		levels, err := parseLevels(flagLevel)
-		if err != nil {
-			return err
-		}
 		kinds, err := parseKinds(flagKind)
 		if err != nil {
 			return err
@@ -78,7 +73,7 @@ var runCmd = &cobra.Command{
 			return err
 		}
 
-		j, err := judgeFor(probes, levels)
+		j, err := judgeFor(probes, flagJudge)
 		if err != nil {
 			return err
 		}
@@ -94,31 +89,6 @@ var runCmd = &cobra.Command{
 	},
 }
 
-// parseLevels splits the --level CSV into the enabled set. --level only toggles
-// the Judge (l2) — it selects no probes, every probe in the corpus runs. l3/l4
-// are retired tiers (see CONTEXT.md).
-func parseLevels(s string) (map[string]bool, error) {
-	set := map[string]bool{}
-	for _, tok := range strings.Split(s, ",") {
-		tok = strings.TrimSpace(tok)
-		if tok == "" {
-			continue
-		}
-		switch tok {
-		case "l1", "l2":
-			set[tok] = true
-		case "l3", "l4":
-			return nil, fmt.Errorf("tier %q is retired; --level only toggles the judge (l1, l2)", tok)
-		default:
-			return nil, fmt.Errorf("unknown tier %q (want l1 or l2)", tok)
-		}
-	}
-	if len(set) == 0 {
-		return nil, fmt.Errorf("--level is empty")
-	}
-	return set, nil
-}
-
 // validateSamples requires an odd N: the aggregator's majority vote equals
 // median-of-scores thresholding (the judge-rubric contract) only for odd N.
 func validateSamples(n int) error {
@@ -132,14 +102,14 @@ func validateSamples(n int) error {
 }
 
 // judgeFor builds a Judge iff the corpus needs one (judge-backed rules or
-// comparative probes — open-ended and plan), requiring l2 in that case so a
-// judge check or preference never runs without a judge.
-func judgeFor(probes []dsl.Probe, levels map[string]bool) (judge.Judge, error) {
+// comparative probes — open-ended and plan). --judge gates it: the Judge adds
+// claude -p calls, so a corpus that needs one errors until --judge is passed.
+func judgeFor(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	if !dsl.NeedsJudge(probes) {
 		return nil, nil
 	}
-	if !levels["l2"] {
-		return nil, fmt.Errorf("corpus needs a judge; add l2 to --level (got %q)", flagLevel)
+	if !judgeOn {
+		return nil, fmt.Errorf("corpus needs a judge (open-ended/plan/judge_rubric probes); pass --judge to enable it (adds claude -p calls — extra spend)")
 	}
 	return judge.New(judge.NewClaudeBackend()), nil
 }
@@ -339,7 +309,7 @@ func validateConcurrency(n int) error {
 
 func init() {
 	f := runCmd.Flags()
-	f.StringVar(&flagLevel, "level", "l1", "l1, or l2 to build the judge (open-ended/plan/judge_rubric corpora)")
+	f.BoolVar(&flagJudge, "judge", false, "build the Judge for open-ended/plan/judge_rubric corpora (adds claude -p calls — extra spend)")
 	f.StringVar(&flagKind, "kind", allKinds, "probe kinds to run (CSV of rule_based,open_ended,plan)")
 	f.StringVar(&flagTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")

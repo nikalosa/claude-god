@@ -7,48 +7,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/dsl"
 )
 
-func TestParseLevels(t *testing.T) {
-	cases := []struct {
-		in      string
-		want    []string
-		wantErr bool
-	}{
-		{"l1", []string{"l1"}, false},
-		{"l2", []string{"l2"}, false},
-		{"l1,l2", []string{"l1", "l2"}, false},
-		{" l1 , l2 ", []string{"l1", "l2"}, false},
-		{"l2,l2", []string{"l2"}, false},
-		{"l3", nil, true},
-		{"l1,l3", nil, true},
-		{"l4", nil, true},
-		{"l1,l4", nil, true},
-		{"bogus", nil, true},
-		{"", nil, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			set, err := parseLevels(tc.in)
-			if tc.wantErr {
-				if err == nil {
-					t.Errorf("parseLevels(%q): expected error", tc.in)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseLevels(%q): %v", tc.in, err)
-			}
-			for _, w := range tc.want {
-				if !set[w] {
-					t.Errorf("parseLevels(%q) missing %q", tc.in, w)
-				}
-			}
-			if len(set) != len(tc.want) {
-				t.Errorf("parseLevels(%q) = %v, want exactly %v", tc.in, set, tc.want)
-			}
-		})
-	}
-}
-
 func TestTaskPrompt(t *testing.T) {
 	plan := dsl.Probe{ID: "p", Prompt: "Add caching.", Kind: dsl.Plan}
 	got := taskPrompt(plan)
@@ -64,14 +22,15 @@ func TestTaskPrompt(t *testing.T) {
 }
 
 // TestJudgeFor_Comparative pins the gotcha: a plan corpus (NeedsJudge=true, no
-// judge_rubric rules) needs the judge, so l2 satisfies it and l1 errors.
+// judge_rubric rules) needs the judge, so --judge satisfies it and the default
+// (off) errors.
 func TestJudgeFor_Comparative(t *testing.T) {
 	probes := []dsl.Probe{{ID: "p", Prompt: "x", Kind: dsl.Plan}}
-	if _, err := judgeFor(probes, map[string]bool{"l2": true}); err != nil {
-		t.Errorf("l2 should satisfy the judge requirement: %v", err)
+	if _, err := judgeFor(probes, true); err != nil {
+		t.Errorf("--judge should satisfy the judge requirement: %v", err)
 	}
-	if _, err := judgeFor(probes, map[string]bool{"l1": true}); err == nil {
-		t.Error("expected error when a comparative corpus lacks l2")
+	if _, err := judgeFor(probes, false); err == nil {
+		t.Error("expected error when a comparative corpus runs without --judge")
 	}
 }
 

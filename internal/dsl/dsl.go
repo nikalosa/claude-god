@@ -92,7 +92,7 @@ type JudgeRubric struct {
 
 func (c *JudgeRubric) Eval(ctx context.Context, in EvalInput) (bool, error) {
 	if in.Judge == nil {
-		return false, fmt.Errorf("judge_rubric check requires a judge (run with --level l2)")
+		return false, fmt.Errorf("judge_rubric check requires a judge (run with --judge)")
 	}
 	score, err := in.Judge.Score(ctx, in.Prompt, in.Record.FinalText, c.Facts)
 	if err != nil {
@@ -137,7 +137,7 @@ func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Ru
 }
 
 // NeedsJudge reports whether any check in the corpus is judge-backed, so the
-// caller builds a Judge (and requires --level l2) exactly when needed.
+// caller builds a Judge (and requires --judge) exactly when needed.
 func NeedsJudge(probes []Probe) bool {
 	for _, p := range probes {
 		if p.Comparative() {

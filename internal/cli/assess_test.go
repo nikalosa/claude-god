@@ -10,22 +10,22 @@ import (
 
 // TestJudgeForAssess pins the single-env judge rule: comparative probes need no
 // judge (assess never runs a Preference comparison), only a judge_rubric rule
-// does. So an open_ended-only corpus assesses at l1, but a judge_rubric corpus
-// needs l2.
+// does. So an open_ended-only corpus assesses without --judge, but a
+// judge_rubric corpus needs it.
 func TestJudgeForAssess(t *testing.T) {
 	comparative := []dsl.Probe{{ID: "design", Prompt: "x", Kind: dsl.OpenEnded}}
-	if j, err := judgeForAssess(comparative, map[string]bool{"l1": true}); err != nil || j != nil {
-		t.Errorf("comparative-only corpus must need no judge at l1: j=%v err=%v", j, err)
+	if j, err := judgeForAssess(comparative, false); err != nil || j != nil {
+		t.Errorf("comparative-only corpus must need no judge without --judge: j=%v err=%v", j, err)
 	}
 
 	rubric := []dsl.Probe{{ID: "r", Prompt: "q", Kind: dsl.RuleBased, Rules: []dsl.Rule{{
 		ID: "fact", Severity: dsl.Critical, Checks: []dsl.Check{&dsl.JudgeRubric{Facts: []string{"f"}, PassScore: 50}},
 	}}}}
-	if _, err := judgeForAssess(rubric, map[string]bool{"l1": true}); err == nil {
-		t.Error("judge_rubric corpus must require l2")
+	if _, err := judgeForAssess(rubric, false); err == nil {
+		t.Error("judge_rubric corpus must require --judge")
 	}
-	if _, err := judgeForAssess(rubric, map[string]bool{"l2": true}); err != nil {
-		t.Errorf("l2 should satisfy a judge_rubric corpus: %v", err)
+	if _, err := judgeForAssess(rubric, true); err != nil {
+		t.Errorf("--judge should satisfy a judge_rubric corpus: %v", err)
 	}
 }
 
