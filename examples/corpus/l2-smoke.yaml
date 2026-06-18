@@ -1,8 +1,8 @@
 # Example L2 corpus: a judge-graded (rubric) design probe. The rubric turns an
 # open-ended architectural answer into per-fact present/absent, scored 0-100 and
-# thresholded by pass_score. Requires --level l2 (a Judge is built):
+# thresholded by pass_score. Requires --judge (a Judge is built):
 #
-#   claude-benchmark run --level l2 --corpus examples/corpus/l2-smoke.yaml \
+#   claude-benchmark run --judge --corpus examples/corpus/l2-smoke.yaml \
 #     --target <repo> --before <branch> --after <branch>
 probes:
   - id: architecture_design

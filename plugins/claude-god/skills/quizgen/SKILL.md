@@ -68,7 +68,7 @@ Match the corpus YAML the benchmark already loads — read an existing corpus un
 - `kind: open_ended` — prompt only, no rules; preference-graded.
 - `kind: plan` — prompt only, no rules; preference-graded, but the run is asked for a
   step-by-step plan. Comparative probes (open_ended, plan) need a judge — run with
-  `--level l2` (see `examples/corpus/plan-smoke.yaml`).
+  `--judge` (see `examples/corpus/plan-smoke.yaml`).
 
 ## Validate
 
@@ -79,7 +79,7 @@ claude-benchmark calibrate --target <repo> --corpus .benchmark/corpus/<name>.yam
   --branch <before> --no-memory-snapshot
 ```
 
-Add `--level l2` when the corpus has open-ended, plan, or `judge_rubric` probes — calibrate
+Add `--judge` when the corpus has open-ended, plan, or `judge_rubric` probes — calibrate
 must build a **Judge** for them, even though only rule-based probes have a noise floor.
 
 Before-vs-Before; tighten or drop any flaky check before trusting a real Before-vs-After

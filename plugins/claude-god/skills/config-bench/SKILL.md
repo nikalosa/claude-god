@@ -32,13 +32,13 @@ confirm, and interpret. Glossary: [CONTEXT.md](https://github.com/nikalosa/claud
    explicit yes, then invoke with `--yes`:
 
    ```sh
-   claude-benchmark --yes            # plus any --before/--after/--corpus/--level/--kind the dev asked for
+   claude-benchmark --yes            # plus any --before/--after/--corpus/--judge/--kind the dev asked for
    ```
 
-   Pass through dev requests verbatim. `--level` defaults to `l1` (no judge); pass `l2` to
-   grade a corpus that needs the **Judge** (open-ended/plan/judge_rubric probes). `--samples 5`
-   raises N. `--kind` (CSV of `rule_based,open_ended,plan`, default all) narrows which probe
-   kinds run.
+   Pass through dev requests verbatim. `--judge` is **off by default**; pass it to grade a
+   corpus that needs the **Judge** (open-ended/plan/judge_rubric probes — it adds `claude -p`
+   calls, real spend). `--samples 5` raises N. `--kind` (CSV of `rule_based,open_ended,plan`,
+   default all) narrows which probe kinds run.
 
 3. **Interpret the report.** Read the markdown back, quality first:
    - **Regressions** — Before PASS → After FAIL, "what the restructure compromised." Lead here.
@@ -55,7 +55,7 @@ confirm, and interpret. Glossary: [CONTEXT.md](https://github.com/nikalosa/claud
 When there's no baseline to compare, `assess` scores one **Environment** against the corpus:
 
 ```sh
-claude-benchmark assess --yes      # plus --ref/--corpus/--level/--kind as asked
+claude-benchmark assess --yes      # plus --ref/--corpus/--judge/--kind as asked
 ```
 
 - **Ref.** Defaults to the current config (dirty tree → working tree; else `HEAD`);
@@ -66,7 +66,7 @@ claude-benchmark assess --yes      # plus --ref/--corpus/--level/--kind as asked
   **Numbers** with no Δ column. **Open-ended/plan probes have no single-env grade** (a
   Preference comparison needs two answers): they run for Numbers and are listed *not graded*.
   To grade those, run the A/B benchmark. Skip them up front with `--kind rule_based`.
-- `--level l2` only if the corpus carries judge_rubric rules.
+- `--judge` only if the corpus carries judge_rubric rules.
 
 ## Hard boundary
 

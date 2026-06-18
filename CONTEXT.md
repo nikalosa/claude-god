@@ -107,7 +107,7 @@ _Avoid_: Metrics (overloaded), stats.
 - **Claude rules** = *only* the `.claude/rules/*` source files — never CLAUDE.md or docs.
 A restructure freely rewrites CLAUDE.md, Claude rules, and docs; claude-benchmark checks the **Rules** (behaviors) survive. Losing a source file is fine; losing a Rule is "what changed."
 
-**Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The `--level` CLI flag carries no conceptual weight: it selects no probes — every probe in the corpus runs — it only builds the **Judge** when the corpus needs one (pass `l2` for a corpus with open-ended or `judge_rubric` probes).
+**Tier / Level / L1–L4** — **retired.** Probes are classified by **Mode** (Ask / Plan) and kind (Rule-based / Open-ended / Plan probe), generated as three independent streams. The retired `--level l1/l2` flag is now the boolean **`--judge`** ([ADR-0013](docs/adr/0013-judge-flag-replaces-level.md)): it carries no conceptual weight — it selects no probes, every probe in the corpus runs — it only builds the **Judge** when the corpus needs one (pass `--judge` for a corpus with open-ended/plan or `judge_rubric` probes). Off by default, since the Judge adds `claude -p` calls (real spend).
 
 ## Example dialogue
 

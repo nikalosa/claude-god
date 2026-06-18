@@ -56,9 +56,10 @@ is the still-unreconciled third root and is intentionally left as-is.
 
 ## Consequences
 
-- The root cobra command gets a default action; `--target/--corpus/--before/--after/--level`
-  are optional. `--level` defaults to `l1` (no judge); pass `l2` for a corpus that needs the
-  **Judge** (open-ended/plan/judge_rubric probes) — it selects no probes, every probe runs.
+- The root cobra command gets a default action; `--target/--corpus/--before/--after/--judge`
+  are optional. The Judge is **off by default**; pass `--judge` for a corpus that needs it
+  (open-ended/plan/judge_rubric probes) — it selects no probes, every probe runs. (`--level
+  l1/l2` was renamed to the boolean `--judge` in [ADR-0013](0013-judge-flag-replaces-level.md).)
 - Before spending (a 20-probe corpus at N=3 ≈ 120 `claude -p` calls), the command prints a
   plan — resolved Before/After, probe count, run count — and asks to proceed; `--yes` skips it
   for the skill / CI.

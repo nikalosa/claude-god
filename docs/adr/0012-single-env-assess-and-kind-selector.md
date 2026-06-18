@@ -7,11 +7,12 @@ Two independent additions to the CLI.
 **`--kind` selector.** A CSV flag over the three probe kinds (`rule_based`,
 `open_ended`, `plan`), default all, on every corpus-running mode (bare, `run`,
 `calibrate`, `assess`). It subsets the **Corpus** right after load; an empty
-selection errors. It carries no conceptual weight — like `--level` it selects
-probes, it does not change grading — so the dev can run "just the rules" or "just
-the design probes" without editing the corpus. The judge is built from the
-*filtered* set, so `--kind rule_based` on a judge-needing corpus runs at `l1`
-when the surviving rules carry no `judge_rubric`.
+selection errors. It carries no conceptual weight — it subsets which probes run,
+it does not change grading — so the dev can run "just the rules" or "just the
+design probes" without editing the corpus. The judge is built from the
+*filtered* set, so `--kind rule_based` on a judge-needing corpus runs without the
+Judge when the surviving rules carry no `judge_rubric` (no `--judge` needed; the
+flag was `--level l1` before [ADR-0013](0013-judge-flag-replaces-level.md)).
 
 **`assess` — score one Environment, no A/B.** Runs the corpus against a single
 ref (default: the working tree, temp-committed when dirty — the same "current

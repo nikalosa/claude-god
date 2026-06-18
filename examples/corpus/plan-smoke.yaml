@@ -2,9 +2,9 @@
 # step-by-step plan, not to execute it; runs stay read-only (ADR-0006). The
 # Before-plan and After-plan are compared by the same Preference comparison as
 # open-ended probes, alongside Numbers — report-only, never a gate. A plan probe
-# is comparative, so a Judge is built for the preference — run with --level l2:
+# is comparative, so a Judge is built for the preference — run with --judge:
 #
-#   claude-benchmark run --level l2 --corpus examples/corpus/plan-smoke.yaml \
+#   claude-benchmark run --judge --corpus examples/corpus/plan-smoke.yaml \
 #     --target <repo> --before <branch> --after <branch>
 probes:
   - id: add_check_kind_plan

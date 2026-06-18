@@ -42,7 +42,7 @@ A **Probe** is one prompt plus how its response is graded. Three kinds, built in
 2. **Open-ended probe** — system/design questions, generated with the whole codebase in view. *"How do the betting and ledger services communicate?"* No single right answer; the two environments' answers are compared head-to-head by the Judge, alongside Numbers. Report-only — it cannot produce a false "nothing compromised."
 3. **Plan probe** — Claude produces a step-by-step plan, no execution. Before's plan and After's plan are compared (tighter? steps lost or gained?), alongside Numbers.
 
-**Real execution** — Claude performing the task rather than answering or planning it — is **deferred**; the answer/plan proxy above is why the tool is useful without it. The `--level` flag encodes no difficulty tier (L1–L4 retired): every probe in the corpus always runs, and `--level` only builds the Judge when the corpus needs one (`l2` for open-ended, plan, or `judge_rubric` probes).
+**Real execution** — Claude performing the task rather than answering or planning it — is **deferred**; the answer/plan proxy above is why the tool is useful without it. The `--judge` flag encodes no difficulty tier (L1–L4 retired): every probe in the corpus always runs, and `--judge` only builds the Judge when the corpus needs one (open-ended, plan, or `judge_rubric` probes). Off by default, since the Judge adds `claude -p` calls.
 
 ## How a run works
 
