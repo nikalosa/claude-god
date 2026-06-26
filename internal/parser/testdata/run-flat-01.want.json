@@ -36,5 +36,39 @@
   },
   "peak_context_tokens": 32852,
   "base_context_tokens": 32852,
-  "tool_calls": []
+  "tool_calls": [],
+  "mcp_servers": [
+    {
+      "name": "claude.ai Tripadvisor",
+      "status": "disabled"
+    },
+    {
+      "name": "claude.ai Booking.com",
+      "status": "disabled"
+    },
+    {
+      "name": "claude.ai Slack",
+      "status": "disabled"
+    },
+    {
+      "name": "claude.ai Google Drive",
+      "status": "disabled"
+    },
+    {
+      "name": "claude.ai Linear",
+      "status": "disabled"
+    },
+    {
+      "name": "claude.ai Google Calendar",
+      "status": "needs-auth"
+    },
+    {
+      "name": "claude.ai Gmail",
+      "status": "needs-auth"
+    },
+    {
+      "name": "claude.ai Notion",
+      "status": "disabled"
+    }
+  ]
 }

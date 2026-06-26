@@ -41,6 +41,12 @@ type RunRecord struct {
 	// flat no-tool runs.
 	ToolCalls []ToolCall `json:"tool_calls"`
 
+	// MCPServers is the init-event roster of MCP servers Claude actually loaded,
+	// with status. Under --strict-mcp-config these are exactly the servers the
+	// Environment declared, so a "disabled"/"failed" entry means a declared
+	// server did not load (the harness rejects such a run rather than grade it).
+	MCPServers []MCPServer `json:"mcp_servers,omitempty"`
+
 	// FileMutations is reserved for the harness to fill from the post-run git
 	// diff; the parser always leaves it nil.
 	FileMutations []FileMutation `json:"file_mutations,omitempty"`
@@ -69,6 +75,11 @@ type ModelUsage struct {
 
 type ToolCall struct {
 	Name string `json:"name"`
+}
+
+type MCPServer struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 type FileMutation struct {
@@ -143,9 +154,10 @@ func Parse(r io.Reader) (*RunRecord, error) {
 				continue
 			}
 			var sys struct {
-				SessionID string `json:"session_id"`
-				Model     string `json:"model"`
-				Cwd       string `json:"cwd"`
+				SessionID  string      `json:"session_id"`
+				Model      string      `json:"model"`
+				Cwd        string      `json:"cwd"`
+				MCPServers []MCPServer `json:"mcp_servers"`
 			}
 			if err := json.Unmarshal(line, &sys); err != nil {
 				return nil, fmt.Errorf("parse system/init: %w", err)
@@ -153,6 +165,7 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			rec.SessionID = sys.SessionID
 			rec.Model = sys.Model
 			rec.Cwd = sys.Cwd
+			rec.MCPServers = sys.MCPServers
 
 		case "assistant":
 			// Count top-level tool calls only: parent_tool_use_id is null for the

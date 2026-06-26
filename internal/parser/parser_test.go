@@ -4,8 +4,26 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+// TestParse_MCPServers pins that the init-event mcp_servers roster (name+status)
+// is captured, so the harness can reject a run where a declared server loaded
+// disabled instead of silently grading it as "server present".
+func TestParse_MCPServers(t *testing.T) {
+	stream := `{"type":"system","subtype":"init","session_id":"s","model":"m","cwd":"/wt","mcp_servers":[{"name":"codegraph","status":"disabled"}]}
+{"type":"result","subtype":"success","result":"hi","total_cost_usd":0.01}
+`
+	got, err := Parse(strings.NewReader(stream))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []MCPServer{{Name: "codegraph", Status: "disabled"}}
+	if !reflect.DeepEqual(got.MCPServers, want) {
+		t.Errorf("MCPServers = %+v, want %+v", got.MCPServers, want)
+	}
+}
 
 func TestParse_Flat(t *testing.T) {
 	f, err := os.Open("testdata/run-flat-01.jsonl")
