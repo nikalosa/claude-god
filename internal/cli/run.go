@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,16 +29,27 @@ var (
 	flagCorpus        string
 	flagBefore        string
 	flagAfter         string
+	flagBeforeMCP     string
+	flagAfterMCP      string
 	flagSamples       int
 	flagConcurrency   int
 	flagNoMemSnapshot bool
 	flagDumpDir       string
 )
 
-// runFunc executes one probe sample on a branch and returns its record. The
-// pool depends on this seam, not on harness.Run, so it is unit-testable with a
-// fake and never shells out to claude in tests.
-type runFunc func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error)
+// Env is one side of a comparison: the git ref under test plus the MCP config it
+// carries. It makes the CONTEXT.md "Environment" concrete — the ref is the base
+// layer (code + in-tree CLAUDE.md/rules/docs), MCPConfig an explicit layer on
+// top — so Before and After can share a ref and differ only in MCP.
+type Env struct {
+	Ref       string
+	MCPConfig string
+}
+
+// runFunc executes one probe sample in an Environment and returns its record.
+// The pool depends on this seam, not on harness.Run, so it is unit-testable with
+// a fake and never shells out to claude in tests.
+type runFunc func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error)
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -80,7 +92,9 @@ var runCmd = &cobra.Command{
 
 		ctx := context.Background()
 		run := harnessRun(target, flagNoMemSnapshot)
-		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, flagBefore, flagAfter, flagSamples, flagConcurrency, run, j, flagDumpDir)
+		before := Env{Ref: flagBefore, MCPConfig: flagBeforeMCP}
+		after := Env{Ref: flagAfter, MCPConfig: flagAfterMCP}
+		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagSamples, flagConcurrency, run, j, flagDumpDir)
 		if err != nil {
 			return err
 		}
@@ -133,13 +147,14 @@ func taskPrompt(probe dsl.Probe) string {
 // nothing about the result; only Duration inflates under concurrency (see
 // ADR-0005). Shared by run and calibrate (calibrate passes the same branch on
 // both sides). run is injected so the pool is testable without claude.
-func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string, samples, concurrency int, run runFunc, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
+func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, samples, concurrency int, run runFunc, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
 
 	type task struct {
-		branch, prompt, label, env string
-		dst                        **parser.RunRecord
+		spec               Env
+		prompt, label, env string
+		dst                **parser.RunRecord
 	}
 	for pi := range probes {
 		beforeRecs[pi] = make([]*parser.RunRecord, samples)
@@ -172,13 +187,14 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 
 	perEnv := int64(samples * len(probes))
 	start := time.Now()
+	runLimit, retryGate := mcpGuard(concurrency, before, after)
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(concurrency)
+	g.SetLimit(runLimit)
 	var done, beforeDone, afterDone, inTok, outTok, costMicros int64
 	total := len(tasks)
 	for _, t := range tasks {
 		g.Go(func() error {
-			rec, err := runWithRetry(gctx, run, t.branch, t.prompt, t.label)
+			rec, err := runWithRetry(gctx, run, t.spec, t.prompt, t.label, retryGate)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.label, err)
 			}
@@ -233,7 +249,7 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 	}
 
 	if dumpDir != "" {
-		if err := report.DumpAnswers(dumpDir, before, after, probes, beforeRecs, afterRecs, prefSlots); err != nil {
+		if err := report.DumpAnswers(dumpDir, before.Ref, after.Ref, probes, beforeRecs, afterRecs, prefSlots); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: answer dump failed: %v\n", err)
 		} else {
 			fmt.Fprintf(os.Stderr, "wrote answer dump to %s\n", dumpDir)
@@ -250,15 +266,16 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after string,
 }
 
 // runWithRetry retries a sample on transient failure (an occasional claude -p
-// flake or API error): one dying run must not abort a whole 96-run benchmark.
-// Each attempt is a fresh worktree + claude invocation. Stops early if the pool
-// context is cancelled.
-func runWithRetry(ctx context.Context, run runFunc, branch, prompt, label string) (*parser.RunRecord, error) {
+// flake or API error, or a declared MCP server that lost the startup race —
+// harness.checkMCPHealth surfaces that as an error): one dying run must not abort a
+// whole 96-run benchmark. Each attempt is a fresh worktree + claude invocation.
+// Stops early if the pool context is cancelled.
+func runWithRetry(ctx context.Context, run runFunc, env Env, prompt, label string, gate *sync.Mutex) (*parser.RunRecord, error) {
 	const maxAttempts = 3
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		var rec *parser.RunRecord
-		if rec, err = run(ctx, branch, prompt); err == nil {
+		if rec, err = runAttempt(ctx, run, env, prompt, attempt, gate); err == nil {
 			return rec, nil
 		}
 		if ctx.Err() != nil {
@@ -271,16 +288,59 @@ func runWithRetry(ctx context.Context, run runFunc, branch, prompt, label string
 	return nil, err
 }
 
+// runAttempt serializes re-rolls (attempt > 1) through gate when set. A declared
+// MCP server only loses the startup race under CPU contention, so the first pass
+// stays parallel while retries run one-at-a-time and reliably win the handshake.
+// gate is nil when no Environment declares MCP, leaving every attempt unsynchronized.
+func runAttempt(ctx context.Context, run runFunc, env Env, prompt string, attempt int, gate *sync.Mutex) (*parser.RunRecord, error) {
+	if attempt > 1 && gate != nil {
+		gate.Lock()
+		defer gate.Unlock()
+	}
+	return run(ctx, env, prompt)
+}
+
+// mcpRunConcurrencyCap bounds the run pool when an Environment declares MCP. The
+// headless client can start its turn before a stdio MCP server finishes its
+// handshake, and that race is only reliably won under low CPU contention (measured:
+// 2 concurrent wins, 6 loses). A modest cap keeps most runs winning on the first
+// try; the rare miss is detected (harness.checkMCPHealth) and serialized through the
+// retry gate. Correctness over speed — Duration is already advisory above 1.
+const mcpRunConcurrencyCap = 3
+
+// mcpGuard derives the run-pool limit and retry gate for a set of Environments.
+// When any declares MCP it caps first-pass concurrency and returns a gate so
+// retries serialize (see runAttempt); otherwise the pool runs at the requested
+// concurrency with no gate. Note: only an explicit MCP config (--before-mcp /
+// --after-mcp / --mcp) is visible here — a ref's committed .mcp.json is resolved
+// later in the harness, so the cap does not engage for that case (ADR-0014).
+func mcpGuard(concurrency int, envs ...Env) (limit int, gate *sync.Mutex) {
+	limit = concurrency
+	for _, e := range envs {
+		if e.MCPConfig == "" {
+			continue
+		}
+		if limit > mcpRunConcurrencyCap {
+			limit = mcpRunConcurrencyCap
+		}
+		gate = &sync.Mutex{}
+		fmt.Fprintf(os.Stderr, "MCP declared: capping run concurrency to %d and serializing retries so the stdio MCP handshake wins the startup race (correctness over speed; ADR-0014)\n", limit)
+		return limit, gate
+	}
+	return limit, nil
+}
+
 // harnessRun is the production runFunc: it runs one sample through the real
 // harness for a fixed target and memory policy. Each call gets its own worktree
 // so concurrent claude sessions never share a cwd.
 func harnessRun(target string, noMem bool) runFunc {
-	return func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error) {
+	return func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
 		res, err := harness.Run(ctx, harness.Opts{
 			TargetRepo:    target,
-			Branch:        branch,
+			Branch:        env.Ref,
 			Prompt:        prompt,
 			NoMemSnapshot: noMem,
+			MCPConfig:     env.MCPConfig,
 		})
 		if err != nil {
 			return nil, err
@@ -315,6 +375,8 @@ func init() {
 	f.StringVar(&flagCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagBefore, "before", "benchmark/before", "branch holding the pre-restructure baseline")
 	f.StringVar(&flagAfter, "after", "benchmark/after", "branch holding the post-restructure config under test")
+	f.StringVar(&flagBeforeMCP, "before-mcp", "", "MCP config for Before (a --mcp-config file path or inline JSON; empty = the ref's committed .mcp.json, else none)")
+	f.StringVar(&flagAfterMCP, "after-mcp", "", "MCP config for After (a --mcp-config file path or inline JSON; empty = the ref's committed .mcp.json, else none)")
 	f.IntVar(&flagSamples, "samples", 1, "samples per environment (odd N; default 1, adaptive N=5 deferred)")
 	f.IntVar(&flagConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")

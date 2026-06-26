@@ -29,6 +29,7 @@ var (
 	flagAssessTarget      string
 	flagAssessCorpus      string
 	flagAssessRef         string
+	flagAssessMCP         string
 	flagAssessSamples     int
 	flagAssessConcurrency int
 	flagAssessYes         bool
@@ -105,12 +106,13 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	run := func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error) {
+	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
 		r, err := harness.Run(ctx, harness.Opts{
 			TargetRepo:   target,
-			Branch:       branch,
+			Branch:       env.Ref,
 			Prompt:       prompt,
 			MemorySource: memSrc,
+			MCPConfig:    env.MCPConfig,
 		})
 		if err != nil {
 			return nil, err
@@ -118,7 +120,7 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 		return r.Record, nil
 	}
 
-	aggs, err := runSingleEnv(ctx, probes, ref, flagAssessSamples, flagAssessConcurrency, run, j)
+	aggs, err := runSingleEnv(ctx, probes, Env{Ref: ref, MCPConfig: flagAssessMCP}, flagAssessSamples, flagAssessConcurrency, run, j)
 	if err != nil {
 		return err
 	}
@@ -145,7 +147,7 @@ func judgeForAssess(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 // only their Numbers. Like runBenchmark, results store by probe index so
 // concurrency never changes the output (ADR-0005); comparative probes dispatch
 // first (LPT) since they run ~5x longer.
-func runSingleEnv(ctx context.Context, probes []dsl.Probe, ref string, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.AggregatedOutcome, error) {
+func runSingleEnv(ctx context.Context, probes []dsl.Probe, env Env, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.AggregatedOutcome, error) {
 	recs := make([][]*parser.RunRecord, len(probes))
 	for pi := range probes {
 		recs[pi] = make([]*parser.RunRecord, samples)
@@ -173,13 +175,14 @@ func runSingleEnv(ctx context.Context, probes []dsl.Probe, ref string, samples, 
 	}
 
 	start := time.Now()
+	runLimit, retryGate := mcpGuard(concurrency, env)
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(concurrency)
+	g.SetLimit(runLimit)
 	var done, inTok, outTok, costMicros int64
 	total := len(tasks)
 	for _, t := range tasks {
 		g.Go(func() error {
-			rec, err := runWithRetry(gctx, run, ref, t.prompt, t.label)
+			rec, err := runWithRetry(gctx, run, env, t.prompt, t.label, retryGate)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t.label, err)
 			}
@@ -244,6 +247,7 @@ func init() {
 	f.StringVar(&flagAssessTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagAssessCorpus, "corpus", "", "corpus YAML (default: auto-discover .benchmark/corpus/*.yaml)")
 	f.StringVar(&flagAssessRef, "ref", "", "the Environment to assess (default: the working tree)")
+	f.StringVar(&flagAssessMCP, "mcp", "", "MCP config for the assessed Environment (a --mcp-config file path or inline JSON)")
 	f.IntVar(&flagAssessSamples, "samples", 1, "samples per probe (odd N; default 1)")
 	f.IntVar(&flagAssessConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagAssessYes, "yes", false, "skip the spend-plan confirmation prompt")

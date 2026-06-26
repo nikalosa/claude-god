@@ -2,7 +2,7 @@
 
 The language of comparing two Claude environments (the messy "before" and the restructured "after") and reporting what improved and what changed. The product is a **decision-support report a human reads** — not an automated gate. Terms here are the project's vocabulary; general programming concepts are excluded.
 
-**Environment** here means the whole Claude context configuration of a project: its **CLAUDE.md** (root + nested), **Claude rules** (`.claude/rules/*`), **docs**, and **memory**. These are distinct parts — "Claude rules" is *only* `.claude/rules/*`, never an umbrella for the others. The public **skill-name** surface shortens this bundle to **config** (`config-bench`, `config-refactor`) — it names the whole configuration, friendlier than "environment" (reads as env-vars) and broader than "context" (one slice).
+**Environment** here means the whole Claude context configuration of a project: its **CLAUDE.md** (root + nested), **Claude rules** (`.claude/rules/*`), **docs**, **memory**, and the **MCP servers** it loads. These are distinct parts — "Claude rules" is *only* `.claude/rules/*`, never an umbrella for the others. The public **skill-name** surface shortens this bundle to **config** (`config-bench`, `config-refactor`) — it names the whole configuration, friendlier than "environment" (reads as env-vars) and broader than "context" (one slice).
 
 ## Language
 
@@ -13,7 +13,7 @@ The repository whose context configuration is being benchmarked. claude-benchmar
 _Avoid_: Repo-under-test, subject, SUT.
 
 **Environment**:
-One of the two configurations being compared, pinned to a git branch: **Before** (baseline) and **After** (the change under test). Every probe runs in both.
+One of the two configurations being compared: **Before** (baseline) and **After** (the change under test). Every probe runs in both. An Environment is **layered** — a git ref supplies the base layer (code + in-tree CLAUDE.md/rules/docs) and the memory policy, and an explicit **MCP config** sits on top — so Before and After can share a ref and differ only in MCP (e.g. an MCP server on/off). The git ref is one input, not the whole definition; the **worktree** is the isolated cwd a **Run** executes in, never the Environment itself.
 _Avoid_: Config (for a single Before/After side — that's an **Environment**; "config" is reserved for the public skill-name surface above), variant, arm, side (except `VerdictSide`, which is the per-environment half of a verdict).
 
 **Mode**:
@@ -67,7 +67,7 @@ _Avoid_: Prompt (bare), generation prompt.
 ### Grading & outcome
 
 **Run**:
-One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled at an odd N per environment (default 1; raise to N≥3 for the majority-vote and **Disagreement** signals). A run is **read-only**: the model inspects the Environment with `Read/Grep/Glob` and with `Bash` constrained to read-only commands by a PreToolUse guard (so it slices files terminal-style instead of reading them whole), but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md), [ADR-0009](docs/adr/0009-read-only-bash-via-pretooluse-guard.md)) — the graded signal is the assistant *text*, never an artifact.
+One headless `claude -p` execution of a probe in one environment, producing a **RunRecord**. Probes are sampled at an odd N per environment (default 1; raise to N≥3 for the majority-vote and **Disagreement** signals). A run is **read-only**: the model inspects the Environment with `Read/Grep/Glob` and with `Bash` constrained to read-only commands by a PreToolUse guard (so it slices files terminal-style instead of reading them whole), but is denied the mutating/network/browser tools and all **skills** ([ADR-0006](docs/adr/0006-headless-runs-read-only.md), [ADR-0009](docs/adr/0009-read-only-bash-via-pretooluse-guard.md)) — the graded signal is the assistant *text*, never an artifact. The Environment's **MCP** servers *are* loaded and their tools allowed (MCP is part of what's under test, unlike skills), pinned with `--strict-mcp-config` so only the servers the Environment declares load — never the dev's ambient user/global config ([ADR-0014](docs/adr/0014-mcp-as-environment-layer.md)).
 
 **Regression**:
 A rule whose majority-voted outcome flipped PASS (Before) → FAIL (After) — "what changed for the worse." Visible in the matrix and read by the dev; claude-benchmark does not gate, score, or count it.

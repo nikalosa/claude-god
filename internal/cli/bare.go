@@ -95,12 +95,13 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	run := func(ctx context.Context, branch, prompt string) (*parser.RunRecord, error) {
+	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
 		r, err := harness.Run(ctx, harness.Opts{
 			TargetRepo:   target,
-			Branch:       branch,
+			Branch:       env.Ref,
 			Prompt:       prompt,
 			MemorySource: memSrc,
+			MCPConfig:    env.MCPConfig,
 		})
 		if err != nil {
 			return nil, err
@@ -108,7 +109,7 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 		return r.Record, nil
 	}
 
-	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, res.Before, res.After, flagEvalSamples, flagEvalConcurrency, run, j, "")
+	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, Env{Ref: res.Before}, Env{Ref: res.After}, flagEvalSamples, flagEvalConcurrency, run, j, "")
 	if err != nil {
 		return err
 	}

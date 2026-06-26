@@ -17,6 +17,7 @@ var (
 	flagCalTarget      string
 	flagCalCorpus      string
 	flagCalBranch      string
+	flagCalMCP         string
 	flagCalSamples     int
 	flagCalConcurrency int
 	flagCalNoMem       bool
@@ -67,7 +68,8 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 
 		ctx := context.Background()
 		run := harnessRun(target, flagCalNoMem)
-		verdicts, _, aggs, err := runBenchmark(ctx, probes, flagCalBranch, flagCalBranch, flagCalSamples, flagCalConcurrency, run, j, "")
+		env := Env{Ref: flagCalBranch, MCPConfig: flagCalMCP}
+		verdicts, _, aggs, err := runBenchmark(ctx, probes, env, env, flagCalSamples, flagCalConcurrency, run, j, "")
 		if err != nil {
 			return err
 		}
@@ -83,6 +85,7 @@ func init() {
 	f.StringVar(&flagCalTarget, "target", ".", "path to the target repo under test")
 	f.StringVar(&flagCalCorpus, "corpus", "", "path to the probe corpus YAML file")
 	f.StringVar(&flagCalBranch, "branch", "main", "the Environment branch to calibrate (run Before-vs-Before)")
+	f.StringVar(&flagCalMCP, "mcp", "", "MCP config for the calibrated Environment (a --mcp-config file path or inline JSON)")
 	f.IntVar(&flagCalSamples, "samples", 3, "samples per environment (odd N)")
 	f.IntVar(&flagCalConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagCalNoMem, "no-memory-snapshot", false, "skip pinning project memory into the run")
