@@ -26,6 +26,7 @@ type Opts struct {
 	Prompt        string
 	NoMemSnapshot bool
 	MemorySource  string
+	MCPConfig     string
 }
 
 type Result struct {
@@ -82,8 +83,9 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 		defer restore()
 	}
 
+	mcp := mcpConfig(wt, opts)
 	streamPath := filepath.Join(artifacts, "stream.jsonl")
-	if err := invokeClaude(ctx, wt, opts.Prompt, streamPath); err != nil {
+	if err := invokeClaude(ctx, wt, opts.Prompt, mcp, streamPath); err != nil {
 		return nil, fmt.Errorf("claude -p: %w", err)
 	}
 
@@ -95,6 +97,9 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 	_ = f.Close()
 	if parseErr != nil {
 		return nil, fmt.Errorf("parse stream: %w", parseErr)
+	}
+	if err := checkMCPHealth(declaredMCPServers(mcp), rec.MCPServers, rec.ToolCalls); err != nil {
+		return nil, err
 	}
 
 	diffPath := filepath.Join(artifacts, "diff.patch")
@@ -151,7 +156,23 @@ func swapMemory(worktree, src string) (restore func(), err error) {
 	}, nil
 }
 
-func invokeClaude(ctx context.Context, cwd, prompt, streamPath string) error {
+// mcpConfig resolves which MCP servers this Environment carries: an explicit
+// config (a --mcp-config file path or inline JSON) wins; otherwise the ref's
+// committed .mcp.json if the worktree has one. Empty means no MCP. The result is
+// always paired with --strict-mcp-config in invokeClaude, so MCP is a controlled
+// variable — never the ambient user/global servers that default discovery leaks.
+func mcpConfig(worktree string, opts Opts) string {
+	if opts.MCPConfig != "" {
+		return opts.MCPConfig
+	}
+	committed := filepath.Join(worktree, ".mcp.json")
+	if _, err := os.Stat(committed); err == nil {
+		return committed
+	}
+	return ""
+}
+
+func invokeClaude(ctx context.Context, cwd, prompt, mcp, streamPath string) error {
 	out, err := os.Create(streamPath)
 	if err != nil {
 		return err
@@ -166,21 +187,150 @@ func invokeClaude(ctx context.Context, cwd, prompt, streamPath string) error {
 	// Reads) and constrained to read-only by a PreToolUse hook — the only lever
 	// that survives bypassPermissions, where scoped Bash(...) rules do not.
 	// --disable-slash-commands drops skills, which are not part of the Environment.
+	// --strict-mcp-config makes MCP part of the Environment under test: only the
+	// servers the caller pins load, never the dev's ambient user/global config.
 	settings, err := readOnlyBashSettings()
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "claude", "-p", prompt,
+	cmd := exec.CommandContext(ctx, "claude", claudeArgs(prompt, mcp, settings)...)
+	cmd.Dir = cwd
+	cmd.Env = SanitizedEnv(os.Environ())
+	cmd.Stdout = out
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// checkMCPHealth fails a run whose declared MCP servers were not actually usable.
+// declared is the server set the Environment pinned (from the --mcp-config); under
+// --strict-mcp-config that is exactly what should load. A declared server is fine
+// only if init reports it "connected" OR it made at least one mcp__<name>__* tool
+// call (proof it loaded and was reachable). Anything else means the controlled
+// variable silently went missing and grading the run would report a false "no
+// difference":
+//   - "disabled": disabled by name in the dev's ambient ~/.claude.json
+//     (disabledMcpServers), which --strict-mcp-config does not override.
+//   - "pending"/absent with zero calls: the headless client started its turn
+//     before the stdio MCP handshake finished — the startup race under concurrency.
+//
+// "pending" is ambiguous on its own (it can still connect-and-be-used), so a tool
+// call is the only positive proof; the run pool retries a failure at low
+// concurrency, where the handshake wins.
+func checkMCPHealth(declared []string, servers []parser.MCPServer, calls []parser.ToolCall) error {
+	if len(declared) == 0 {
+		return nil
+	}
+	status := make(map[string]string, len(servers))
+	for _, s := range servers {
+		status[s.Name] = s.Status
+	}
+	used := mcpCallCounts(calls)
+	var bad []string
+	for _, name := range declared {
+		st := status[name]
+		if st == "connected" || used[name] > 0 {
+			continue
+		}
+		if st == "" {
+			st = "absent"
+		}
+		bad = append(bad, fmt.Sprintf("%s=%s, 0 tool calls", name, st))
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("declared MCP server(s) did not load for this run: %s — either disabled by name in ~/.claude.json (disabledMcpServers, which --strict-mcp-config does not re-enable; rename the server or drop it from that list) or lost the startup race under concurrency (the headless client began its turn before the stdio handshake finished)", strings.Join(bad, "; "))
+	}
+	return nil
+}
+
+// declaredMCPServers returns the server names a --mcp-config declares — inline
+// JSON or a file path, both shaped {"mcpServers":{<name>:{...}}}. It is how the
+// harness knows which servers *should* have loaded, so checkMCPHealth can catch a
+// declared server that never appeared. An empty config or any parse failure yields
+// no names (nothing to assert).
+func declaredMCPServers(mcp string) []string {
+	if mcp == "" {
+		return nil
+	}
+	data := []byte(mcp)
+	if !strings.HasPrefix(strings.TrimSpace(mcp), "{") {
+		b, err := os.ReadFile(mcp)
+		if err != nil {
+			return nil
+		}
+		data = b
+	}
+	var cfg struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(cfg.MCPServers))
+	for name := range cfg.MCPServers {
+		names = append(names, name)
+	}
+	return names
+}
+
+// mcpCallCounts tallies how many times each MCP server's tools were called, keyed
+// by server name. MCP tool calls are named mcp__<server>__<tool>; the server
+// segment is the proof a declared server actually loaded and was usable.
+func mcpCallCounts(calls []parser.ToolCall) map[string]int {
+	const prefix = "mcp__"
+	counts := map[string]int{}
+	for _, c := range calls {
+		if !strings.HasPrefix(c.Name, prefix) {
+			continue
+		}
+		rest := c.Name[len(prefix):]
+		i := strings.Index(rest, "__")
+		if i <= 0 {
+			continue
+		}
+		counts[rest[:i]]++
+	}
+	return counts
+}
+
+// SanitizedEnv strips the launcher's Claude Code session/effort variables so the
+// benchmarked `claude -p` runs in a controlled environment, not whatever the
+// process that started the tool happened to carry. Without this, launching the
+// tool from inside a Claude Code session leaks CLAUDE_EFFORT (reasoning effort),
+// CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, CLAUDECODE, etc. into every
+// run — making results depend on where the tool was launched (non-reproducible).
+// Denylist, not allowlist: PATH/HOME/TMPDIR/ANTHROPIC_* must pass through for
+// claude to find its binary, config, and auth.
+func SanitizedEnv(env []string) []string {
+	out := env[:0:0]
+	for _, kv := range env {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if name == "CLAUDECODE" || name == "CLAUDE_EFFORT" || name == "AI_AGENT" ||
+			strings.HasPrefix(name, "CLAUDE_CODE_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// claudeArgs builds the headless claude -p argv. Split out so tests pin the
+// read-only and MCP flags without shelling out.
+func claudeArgs(prompt, mcp, settings string) []string {
+	args := []string{"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
 		"--disallowedTools", "Agent", "Edit", "Write", "WebFetch",
 		"--settings", settings,
-		"--disable-slash-commands")
-	cmd.Dir = cwd
-	cmd.Stdout = out
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+		"--strict-mcp-config",
+		"--disable-slash-commands"}
+	if mcp != "" {
+		args = append(args, "--mcp-config", mcp)
+	}
+	return args
 }
 
 // readOnlyBashSettings returns an inline Claude Code settings JSON registering a

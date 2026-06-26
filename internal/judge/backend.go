@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/nikalosa/claude-god/internal/harness"
 )
 
 // Backend is the raw LLM call behind the Judge. Hidden behind this interface so
@@ -60,6 +62,7 @@ func askOnce(ctx context.Context, prompt string) (string, error) {
 	// object and needs no flag (see internal/parser/testdata/stream-json-shape.md).
 	cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--output-format", "json")
 	cmd.Dir = dir
+	cmd.Env = harness.SanitizedEnv(os.Environ())
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
