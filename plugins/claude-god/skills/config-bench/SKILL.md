@@ -34,6 +34,8 @@ Add a flag only when the dev's words call for it:
 
 ## Run it
 
+`claude-benchmark` not found ("command not found") → chain to **install-cli** first, then resume here.
+
 1. **Corpus.** Look in `.benchmark/corpus/` for `*.yaml`. None → tell the dev and offer to launch **quizgen**; wait. One → use it. Several → ask which, pass `--corpus <file>`. Dev named one → `--corpus`.
 2. **Plan (free).** Run the command **without `--yes`** — the binary prints the resolved Before/After and `N cached · M to run`, then stops without spending. Show it, and state the guessed Before in plain words so a wrong guess gets caught.
 3. **Run.** On the dev's go-ahead, re-run with `--yes`. Skip the confirmation if the dev already said "just run it."
