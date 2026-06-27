@@ -1,0 +1,34 @@
+# Run cache: persist RunRecords keyed by an environment fingerprint
+
+**Status:** accepted (extends [ADR-0015](0015-shared-per-ref-worktree.md), whose lazy-worktree path this enables; builds on the per-Environment MCP layer [ADR-0014](0014-mcp-as-environment-layer.md) and read-only runs [ADR-0006](0006-headless-runs-read-only.md))
+
+A **Run** is the only expensive step — minutes and dollars of `claude -p` — yet nothing is persisted: `runBenchmark` builds records in memory, grades, prints, exits. So every invocation re-runs everything, an interrupted batch loses all completed work, and re-running an *unchanged* Before pays its full cost again. The **Run cache** persists completed **RunRecords** so an unchanged environment is never re-run, turning a multi-hour benchmark into "run the misses only."
+
+## Decision
+
+1. **Cache the `RunRecord`, never the verdict.** Grading is a pure function of the stored record (`dsl.Grade` reads the record; `judge.Prefer` reads `pool[0].FinalText`), so it is re-done every invocation. Editing a **Rule**, **Severity**, **Check**, or the **Judge** costs no run; only a changed prompt or environment does. Rules/severities/checks/judge are therefore *excluded* from the key.
+2. **Key on a complete environment Fingerprint, not the commit.** `hash(resolved commit SHA + effective MCP config + memory policy + model + effort + CLI version)` paired with the probe's `(prompt content + Mode)`. Resolve the ref to a SHA (`benchmark/before` is a moving pointer); hash the probe's *content*, not its ID (an edited prompt under the same ID must miss). A commit alone misses MCP overrides, memory policy, and model — keying on it would serve false hits, and a false hit silently corrupts a fidelity tool.
+3. **Model + effort are global and keyed** (default `opus-4.8` / `medium`, overridable). They sit at the run level, not in `Env`: differing models on the two sides would confound the config comparison.
+4. **CLI version is keyed** so a bump misses and re-runs (correct by default) and two versions never merge into one pool (leaves the future cross-version comparison open). `--cli-version <token>` overrides that one component to reuse a pool across bumps; every record also *stamps* its true CLI version so a pinned, mixed pool stays detectable.
+5. **The Sample pool is ordered and append-only.** A request for odd N is served `pool[:N]`: grow by appending fresh runs, shrink by deterministic prefix (never discarding the surplus). `pool[0]` is permanently stable, so the **Preference comparison** verdict never wobbles across invocations.
+6. **Write-through checkpoint.** Each completed run persists immediately, so the cache doubles as crash-resume: a batch that dies at run 90 of 96 re-runs only the missing 6. This is why a pool may legitimately hold a non-odd count.
+7. **Content-addressed, one file per run.** `<target>/.benchmark/cache/<fingerprint>/NNN.json`, written via temp-file + atomic `rename`. Distinct sample indices → distinct paths → concurrent writers never touch the same file (no hot-path lock). A brief per-fingerprint lock is held only to reserve the next indices. Lives in the *main* checkout (not the worktree), reuses the `MemoryDir` slug location, and **must be gitignored** — unlike `.benchmark/memory-snapshot`, which `snapshot.go` force-adds; the cache is never force-added.
+8. **Uniform across commands; `--no-cache` is the only opt-out.** `run` (1 or 2 envs — `assess` is folded into single-env `run`) and the default `bare` action all use it. `--no-cache` bypasses the *read* but still *writes*, forcing fresh draws — this is how a dev re-measures noise (the role the retired `calibrate` played). Caching replays frozen draws, so a cache hit shows zero **Disagreement** on a genuinely flaky env until `--no-cache`; this is the accepted price.
+9. **Spend plan is computed after the lookup.** The confirmation gate shows real spend (`174 cached · 6 to run`), and the lookup precedes worktree `Prepare` so a fully-cached ref makes zero checkouts ([ADR-0015](0015-shared-per-ref-worktree.md)).
+10. **Duration survives caching via generation time.** Both `duration_ms` (wall-clock, advisory) and `duration_api_ms` (model generation time) are cached. Generation time is the comparable signal — its Before→After delta stays valid under concurrency and across a cached-Before/fresh-After split, where wall-clock does not. Runs are measured at full concurrency (serial would take days) and stamped with the concurrency used.
+
+## Considered Options
+
+- **Cache the graded verdict/Numbers.** Rejected: a rule or severity edit would force a full re-run though Claude's answer is unchanged, and it bloats the key with rules/judge. Caching the run makes grading edits free.
+- **Key on the commit SHA only.** Rejected: misses MCP override, memory policy, and model — false hits that silently report "no difference." For a tool whose job is fidelity, a wrong hit is worse than a slow one.
+- **One file (JSON/JSONL) per fingerprint.** Rejected: write-through would serialize the parallel pool on a shared file lock, making the cache slower than no cache. Per-run files need no hot-path lock.
+- **Measure clean durations serially (`--concurrency 1`), then cache.** Rejected: a full serial pass is multi-day on a real corpus. Generation time gives a concurrency-robust, cacheable duration without it.
+- **Suppress duration on cache hits.** Rejected: duration is a headline metric; it is an intrinsic per-run measurement and replays exactly like cost/tokens. The honest qualifier is the concurrency stamp, not cache provenance.
+- **Hardwire `calibrate` to bypass the cache.** Rejected: `calibrate` collapses into `assess --no-cache`; noise is the spread of a Sample pool, not a distinct command. One uniform cache + `--no-cache` covers it.
+
+## Consequences
+
+- **Cost/tokens/tool-calls/context window are exact through a cache hit** — they bill and compute identically however the run executed. Only wall-clock duration and the noise/Disagreement signal are sensitive to replay; both have explicit levers (generation-time, `--no-cache`).
+- **Eviction is deferred.** Each new commit SHA mints a new fingerprint dir, so the cache grows unbounded. v1 ships a `cache prune` subcommand; in-repo visibility means a dev can also `rm -rf .benchmark/cache`. No automatic GC yet.
+- **Error runs are not cached** — only a clean `RunRecord` enters a pool; `runWithRetry` already absorbs transient flakes.
+- **The judge preference is not cached in v1.** It is a separable second tier (a pure function of `pool[0]` texts + prompt) that can be added later without touching the run cache.

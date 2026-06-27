@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -11,6 +13,82 @@ import (
 
 	"github.com/nikalosa/claude-god/internal/parser"
 )
+
+// initGitRepo makes a one-commit repo for the worktree-lifecycle tests (no
+// claude needed — Prepare/Close only touch git and the filesystem).
+func initGitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "init")
+	return repo
+}
+
+// TestPrepareClose pins the shared-worktree lifecycle (ADR-0015): Prepare checks
+// the ref out into a fresh tree; Close removes the tree and its tmpdir.
+func TestPrepareClose(t *testing.T) {
+	repo := initGitRepo(t)
+	wt, err := Prepare(context.Background(), PrepareOpts{TargetRepo: repo, Ref: "HEAD", NoMemSnapshot: true})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt.path, "file.txt")); err != nil {
+		t.Errorf("worktree not checked out: %v", err)
+	}
+	if err := wt.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	if _, err := os.Stat(wt.path); !os.IsNotExist(err) {
+		t.Errorf("worktree not removed after Close: err=%v", err)
+	}
+	if _, err := os.Stat(wt.tmpdir); !os.IsNotExist(err) {
+		t.Errorf("tmpdir not removed after Close: err=%v", err)
+	}
+}
+
+// TestPrepareCloseMemory pins memory inject-once / remove-once (ADR-0015):
+// Prepare copies the source into the worktree's project slug, Close removes the
+// whole slug. HOME is redirected so the test never touches the real ~/.claude.
+func TestPrepareCloseMemory(t *testing.T) {
+	repo := initGitRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "MEMORY.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wt, err := Prepare(context.Background(), PrepareOpts{TargetRepo: repo, Ref: "HEAD", MemorySource: src})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	slug := strings.ReplaceAll(wt.path, "/", "-")
+	injected := filepath.Join(home, ".claude", "projects", slug, "memory", "MEMORY.md")
+	if _, err := os.Stat(injected); err != nil {
+		t.Errorf("memory not injected at %s: %v", injected, err)
+	}
+	if err := wt.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "projects", slug)); !os.IsNotExist(err) {
+		t.Errorf("project slug not removed after Close: err=%v", err)
+	}
+}
 
 // TestHarness_Dogfood runs the full L1 harness against this repo on `main`.
 // Gated behind CLAUDE_BENCHMARK_DOGFOOD=1 because it shells out to a real
@@ -54,19 +132,8 @@ func TestHarness_Dogfood(t *testing.T) {
 	if res.Record.TotalCost <= 0 {
 		t.Errorf("expected TotalCost > 0, got %v", res.Record.TotalCost)
 	}
-	if _, err := os.Stat(res.StreamPath); err != nil {
-		t.Errorf("stream artifact missing: %v", err)
-	}
-	if _, err := os.Stat(res.DiffPath); err != nil {
-		t.Errorf("diff artifact missing: %v", err)
-	}
-	if _, err := os.Stat(res.WorktreePath); err == nil {
-		t.Errorf("worktree not cleaned up: %s still exists", res.WorktreePath)
-	}
-
 	rj, _ := json.MarshalIndent(res.Record, "", "  ")
 	t.Logf("RunRecord:\n%s", rj)
-	t.Logf("artifacts: stream=%s diff=%s diff_stat=%s", res.StreamPath, res.DiffPath, res.DiffStatPath)
 }
 
 // TestClaudeArgs pins the read-only + MCP flags: --strict-mcp-config is always

@@ -67,8 +67,12 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 		}
 
 		ctx := context.Background()
-		run := harnessRun(target, flagCalNoMem)
 		env := Env{Ref: flagCalBranch, MCPConfig: flagCalMCP}
+		run, cleanup, err := sharedRun(ctx, target, memPolicy{noSnapshot: flagCalNoMem}, env, env)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
 		verdicts, _, aggs, err := runBenchmark(ctx, probes, env, env, flagCalSamples, flagCalConcurrency, run, j, "")
 		if err != nil {
 			return err

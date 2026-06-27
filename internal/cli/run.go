@@ -91,9 +91,13 @@ var runCmd = &cobra.Command{
 		}
 
 		ctx := context.Background()
-		run := harnessRun(target, flagNoMemSnapshot)
 		before := Env{Ref: flagBefore, MCPConfig: flagBeforeMCP}
 		after := Env{Ref: flagAfter, MCPConfig: flagAfterMCP}
+		run, cleanup, err := sharedRun(ctx, target, memPolicy{noSnapshot: flagNoMemSnapshot}, before, after)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
 		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagSamples, flagConcurrency, run, j, flagDumpDir)
 		if err != nil {
 			return err
@@ -330,23 +334,67 @@ func mcpGuard(concurrency int, envs ...Env) (limit int, gate *sync.Mutex) {
 	return limit, nil
 }
 
-// harnessRun is the production runFunc: it runs one sample through the real
-// harness for a fixed target and memory policy. Each call gets its own worktree
-// so concurrent claude sessions never share a cwd.
-func harnessRun(target string, noMem bool) runFunc {
-	return func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
-		res, err := harness.Run(ctx, harness.Opts{
+// memPolicy is how a command injects project memory into each prepared
+// worktree: an explicit live source (assess/bare), or the ref's committed
+// snapshot unless --no-memory-snapshot is set (run).
+type memPolicy struct {
+	noSnapshot bool
+	source     string
+}
+
+// sharedRun prepares one worktree per distinct ref (ADR-0015) and returns a
+// runFunc that dispatches each Env to its ref's shared worktree, plus a cleanup
+// that tears the worktrees down. Memory is injected once per ref in Prepare and
+// removed in cleanup; the caller defers cleanup so it fires only after the run
+// pool drains — a per-run teardown would wipe the slug sibling runs are still
+// writing. Same-ref Before/After collapse to one worktree and differ only in the
+// per-run MCP config.
+func sharedRun(ctx context.Context, target string, mem memPolicy, envs ...Env) (runFunc, func(), error) {
+	trees := map[string]*harness.Worktree{}
+	cleanup := func() {
+		for _, wt := range trees {
+			_ = wt.Close()
+		}
+	}
+	for _, ref := range distinctRefs(envs) {
+		wt, err := harness.Prepare(ctx, harness.PrepareOpts{
 			TargetRepo:    target,
-			Branch:        env.Ref,
-			Prompt:        prompt,
-			NoMemSnapshot: noMem,
-			MCPConfig:     env.MCPConfig,
+			Ref:           ref,
+			NoMemSnapshot: mem.noSnapshot,
+			MemorySource:  mem.source,
 		})
+		if err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("prepare worktree for %s: %w", ref, err)
+		}
+		trees[ref] = wt
+	}
+	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
+		wt, ok := trees[env.Ref]
+		if !ok {
+			return nil, fmt.Errorf("no prepared worktree for ref %q", env.Ref)
+		}
+		res, err := wt.RunIn(ctx, prompt, env.MCPConfig)
 		if err != nil {
 			return nil, err
 		}
 		return res.Record, nil
 	}
+	return run, cleanup, nil
+}
+
+// distinctRefs returns the unique refs across envs, first-seen order, so a
+// same-ref Before/After yields a single worktree.
+func distinctRefs(envs []Env) []string {
+	seen := map[string]bool{}
+	var refs []string
+	for _, e := range envs {
+		if !seen[e.Ref] {
+			seen[e.Ref] = true
+			refs = append(refs, e.Ref)
+		}
+	}
+	return refs
 }
 
 func humanCount(n int64) string {

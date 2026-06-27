@@ -16,7 +16,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/autodetect"
 	"github.com/nikalosa/claude-god/internal/dsl"
-	"github.com/nikalosa/claude-god/internal/harness"
 	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
 	"github.com/nikalosa/claude-god/internal/report"
@@ -106,21 +105,14 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
-		r, err := harness.Run(ctx, harness.Opts{
-			TargetRepo:   target,
-			Branch:       env.Ref,
-			Prompt:       prompt,
-			MemorySource: memSrc,
-			MCPConfig:    env.MCPConfig,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return r.Record, nil
+	env := Env{Ref: ref, MCPConfig: flagAssessMCP}
+	run, cleanup, err := sharedRun(ctx, target, memPolicy{source: memSrc}, env)
+	if err != nil {
+		return err
 	}
+	defer cleanup()
 
-	aggs, err := runSingleEnv(ctx, probes, Env{Ref: ref, MCPConfig: flagAssessMCP}, flagAssessSamples, flagAssessConcurrency, run, j)
+	aggs, err := runSingleEnv(ctx, probes, env, flagAssessSamples, flagAssessConcurrency, run, j)
 	if err != nil {
 		return err
 	}

@@ -34,6 +34,18 @@ func TestJudgeFor_Comparative(t *testing.T) {
 	}
 }
 
+// TestDistinctRefs pins that worktrees are keyed by ref (ADR-0015): duplicates
+// collapse in first-seen order, so a same-ref Before/After yields one worktree.
+func TestDistinctRefs(t *testing.T) {
+	got := distinctRefs([]Env{{Ref: "a"}, {Ref: "a"}, {Ref: "b"}, {Ref: "a"}})
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("want [a b] first-seen, got %v", got)
+	}
+	if one := distinctRefs([]Env{{Ref: "x"}, {Ref: "x"}}); len(one) != 1 {
+		t.Errorf("same-ref Before/After must collapse to one worktree, got %v", one)
+	}
+}
+
 func TestValidateSamples(t *testing.T) {
 	for _, n := range []int{1, 3, 5, 7} {
 		if err := validateSamples(n); err != nil {

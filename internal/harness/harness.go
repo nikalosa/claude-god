@@ -30,62 +30,94 @@ type Opts struct {
 }
 
 type Result struct {
-	Record       *parser.RunRecord
-	StreamPath   string
-	DiffPath     string
-	DiffStatPath string
-	WorktreePath string
+	Record *parser.RunRecord
 }
 
-func Run(ctx context.Context, opts Opts) (*Result, error) {
+// PrepareOpts configures a per-ref worktree: the target repo, the committish to
+// check out, and the memory policy injected once for the ref's lifetime.
+type PrepareOpts struct {
+	TargetRepo    string
+	Ref           string
+	NoMemSnapshot bool
+	MemorySource  string
+}
+
+// Worktree is a checkout of one ref, shared by every Run of that ref (ADR-0015).
+// Runs are read-only (ADR-0006), so a shared cwd is safe; the tree is created
+// once by Prepare and torn down once by Close. RunIn is safe to call
+// concurrently for one Worktree — claude keys session state by per-run UUID and
+// never mutates the tree — but Prepare/Close on a handle are not.
+type Worktree struct {
+	path       string
+	tmpdir     string
+	targetRepo string
+	restoreMem func()
+}
+
+// Prepare checks ref out into a fresh worktree and injects its memory once. The
+// returned Worktree is shared across all Runs of the ref; release it with Close.
+func Prepare(ctx context.Context, opts PrepareOpts) (*Worktree, error) {
 	if !filepath.IsAbs(opts.TargetRepo) {
 		return nil, errors.New("TargetRepo must be absolute")
 	}
-	if opts.Branch == "" {
-		return nil, errors.New("Branch required")
-	}
-	if opts.Prompt == "" {
-		return nil, errors.New("Prompt required")
+	if opts.Ref == "" {
+		return nil, errors.New("Ref required")
 	}
 
+	tmpdir, err := os.MkdirTemp("", "claude-benchmark-wt-*")
+	if err != nil {
+		return nil, fmt.Errorf("worktree dir: %w", err)
+	}
+	path := filepath.Join(tmpdir, "wt")
+
+	// Only the worktree admin op races on the shared .git, so lock just that
+	// (fast: --no-checkout writes no files) and run the slow checkout outside the
+	// lock. The tree is shared by every Run of this ref (ADR-0015): runs are
+	// read-only, so a shared cwd is safe, and session state is keyed per-run by
+	// UUID, so concurrent runs never collide in the shared project slug.
+	worktreeMu.Lock()
+	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--no-checkout", "--detach", path, opts.Ref)
+	worktreeMu.Unlock()
+	if addErr != nil {
+		_ = os.RemoveAll(tmpdir)
+		return nil, fmt.Errorf("worktree add: %w", addErr)
+	}
+	if err := gitC(ctx, path, "reset", "--hard", "HEAD"); err != nil {
+		_ = removeWorktree(opts.TargetRepo, path)
+		_ = os.RemoveAll(tmpdir)
+		return nil, fmt.Errorf("worktree checkout: %w", err)
+	}
+
+	w := &Worktree{path: path, tmpdir: tmpdir, targetRepo: opts.TargetRepo, restoreMem: func() {}}
+	if src := memorySource(path, opts.MemorySource, opts.NoMemSnapshot); src != "" {
+		restore, err := swapMemory(path, src)
+		if err != nil {
+			_ = removeWorktree(opts.TargetRepo, path)
+			_ = os.RemoveAll(tmpdir)
+			return nil, fmt.Errorf("memory swap: %w", err)
+		}
+		w.restoreMem = restore
+	}
+	return w, nil
+}
+
+// RunIn executes one read-only `claude -p` for prompt in the shared worktree and
+// returns its parsed record. mcpCfg is per-run — Before and After can share a
+// tree and differ only here; empty falls back to the ref's committed .mcp.json.
+// Safe to call concurrently for one Worktree.
+func (w *Worktree) RunIn(ctx context.Context, prompt, mcpCfg string) (*Result, error) {
+	if prompt == "" {
+		return nil, errors.New("Prompt required")
+	}
 	artifacts, err := os.MkdirTemp("", "claude-benchmark-run-*")
 	if err != nil {
 		return nil, fmt.Errorf("artifacts dir: %w", err)
 	}
+	defer os.RemoveAll(artifacts)
 
-	wt := filepath.Join(artifacts, "wt")
-	// Only the worktree admin op races on the shared .git, so lock just that
-	// (fast: --no-checkout writes no files) and populate the tree outside the
-	// lock. The slow checkout then parallelizes across runs instead of
-	// serializing one-at-a-time. Per-run worktree keeps each claude session in
-	// its own cwd (claude keys project state by realpath, so a shared cwd would
-	// collide under concurrency).
-	worktreeMu.Lock()
-	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--no-checkout", "--detach", wt, opts.Branch)
-	worktreeMu.Unlock()
-	if addErr != nil {
-		return nil, fmt.Errorf("worktree add: %w", addErr)
-	}
-	if err := gitC(ctx, wt, "reset", "--hard", "HEAD"); err != nil {
-		return nil, fmt.Errorf("worktree checkout: %w", err)
-	}
-	defer func() {
-		worktreeMu.Lock()
-		_ = gitC(context.Background(), opts.TargetRepo, "worktree", "remove", "--force", wt)
-		worktreeMu.Unlock()
-	}()
-
-	if src := memorySource(wt, opts); src != "" {
-		restore, err := swapMemory(wt, src)
-		if err != nil {
-			return nil, fmt.Errorf("memory swap: %w", err)
-		}
-		defer restore()
-	}
-
-	mcp := mcpConfig(wt, opts)
+	mcp := mcpConfig(w.path, Opts{MCPConfig: mcpCfg})
 	streamPath := filepath.Join(artifacts, "stream.jsonl")
-	if err := invokeClaude(ctx, wt, opts.Prompt, mcp, streamPath); err != nil {
+	if err := invokeClaude(ctx, w.path, prompt, mcp, streamPath); err != nil {
 		return nil, fmt.Errorf("claude -p: %w", err)
 	}
 
@@ -102,29 +134,51 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 		return nil, err
 	}
 
-	diffPath := filepath.Join(artifacts, "diff.patch")
-	diffStatPath := filepath.Join(artifacts, "diff.stat")
-	if err := captureDiff(ctx, wt, diffPath, diffStatPath); err != nil {
-		return nil, fmt.Errorf("capture diff: %w", err)
-	}
-
-	return &Result{
-		Record:       rec,
-		StreamPath:   streamPath,
-		DiffPath:     diffPath,
-		DiffStatPath: diffStatPath,
-		WorktreePath: wt,
-	}, nil
+	return &Result{Record: rec}, nil
 }
 
-// memorySource picks what to inject into the run worktree: an explicit live
-// source (the bare command's current project memory) wins; --no-memory-snapshot
-// disables injection; otherwise the committed snapshot pinned in the worktree.
-func memorySource(worktree string, opts Opts) string {
-	if opts.MemorySource != "" {
-		return opts.MemorySource
+// Close releases the worktree once all Runs have finished: it restores memory
+// (removes the injected project slug) and removes the worktree. It must run
+// after the run pool drains — a per-run Close would wipe the slug that sibling
+// runs are still writing transcripts into (ADR-0015).
+func (w *Worktree) Close() error {
+	w.restoreMem()
+	err := removeWorktree(w.targetRepo, w.path)
+	_ = os.RemoveAll(w.tmpdir)
+	return err
+}
+
+func removeWorktree(targetRepo, path string) error {
+	worktreeMu.Lock()
+	defer worktreeMu.Unlock()
+	return gitC(context.Background(), targetRepo, "worktree", "remove", "--force", path)
+}
+
+// Run is the one-shot path: Prepare + a single RunIn + Close. Used for one-off
+// invocations and the dogfood test; the benchmark pool shares a worktree across
+// runs by driving Prepare/RunIn/Close directly.
+func Run(ctx context.Context, opts Opts) (*Result, error) {
+	wt, err := Prepare(ctx, PrepareOpts{
+		TargetRepo:    opts.TargetRepo,
+		Ref:           opts.Branch,
+		NoMemSnapshot: opts.NoMemSnapshot,
+		MemorySource:  opts.MemorySource,
+	})
+	if err != nil {
+		return nil, err
 	}
-	if opts.NoMemSnapshot {
+	defer wt.Close()
+	return wt.RunIn(ctx, opts.Prompt, opts.MCPConfig)
+}
+
+// memorySource picks what to inject into the worktree: an explicit live source
+// (the bare command's current project memory) wins; --no-memory-snapshot
+// disables injection; otherwise the committed snapshot pinned in the worktree.
+func memorySource(worktree, source string, noSnapshot bool) string {
+	if source != "" {
+		return source
+	}
+	if noSnapshot {
 		return ""
 	}
 	return filepath.Join(worktree, ".benchmark", "memory-snapshot")
@@ -365,37 +419,9 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func captureDiff(ctx context.Context, worktree, diffPath, diffStatPath string) error {
-	if err := gitC(ctx, worktree, "add", "-A"); err != nil {
-		return fmt.Errorf("git add: %w", err)
-	}
-	if err := gitToFile(ctx, worktree, diffPath, "diff", "--cached"); err != nil {
-		return err
-	}
-	if err := gitToFile(ctx, worktree, diffStatPath, "diff", "--cached", "--stat"); err != nil {
-		return err
-	}
-	if err := gitC(ctx, worktree, "reset"); err != nil {
-		return fmt.Errorf("git reset: %w", err)
-	}
-	return nil
-}
-
 func gitC(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Stdout = io.Discard
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func gitToFile(ctx context.Context, dir, path string, args ...string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Stdout = f
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

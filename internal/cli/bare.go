@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -15,8 +14,6 @@ import (
 
 	"github.com/nikalosa/claude-god/internal/autodetect"
 	"github.com/nikalosa/claude-god/internal/dsl"
-	"github.com/nikalosa/claude-god/internal/harness"
-	"github.com/nikalosa/claude-god/internal/parser"
 	"github.com/nikalosa/claude-god/internal/report"
 	"github.com/nikalosa/claude-god/internal/snapshot"
 )
@@ -95,21 +92,15 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
-		r, err := harness.Run(ctx, harness.Opts{
-			TargetRepo:   target,
-			Branch:       env.Ref,
-			Prompt:       prompt,
-			MemorySource: memSrc,
-			MCPConfig:    env.MCPConfig,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return r.Record, nil
+	before := Env{Ref: res.Before}
+	after := Env{Ref: res.After}
+	run, cleanup, err := sharedRun(ctx, target, memPolicy{source: memSrc}, before, after)
+	if err != nil {
+		return err
 	}
+	defer cleanup()
 
-	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, Env{Ref: res.Before}, Env{Ref: res.After}, flagEvalSamples, flagEvalConcurrency, run, j, "")
+	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagEvalSamples, flagEvalConcurrency, run, j, "")
 	if err != nil {
 		return err
 	}

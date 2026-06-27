@@ -13,7 +13,7 @@ The repository whose context configuration is being benchmarked. claude-benchmar
 _Avoid_: Repo-under-test, subject, SUT.
 
 **Environment**:
-One of the two configurations being compared: **Before** (baseline) and **After** (the change under test). Every probe runs in both. An Environment is **layered** — a git ref supplies the base layer (code + in-tree CLAUDE.md/rules/docs) and the memory policy, and an explicit **MCP config** sits on top — so Before and After can share a ref and differ only in MCP (e.g. an MCP server on/off). The git ref is one input, not the whole definition; the **worktree** is the isolated cwd a **Run** executes in, never the Environment itself.
+One of the two configurations being compared: **Before** (baseline) and **After** (the change under test). Every probe runs in both. An Environment is **layered** — a git ref supplies the base layer (code + in-tree CLAUDE.md/rules/docs) and the memory policy, and an explicit **MCP config** sits on top — so Before and After can share a ref and differ only in MCP (e.g. an MCP server on/off). The git ref is one input, not the whole definition; the **worktree** is the per-ref cwd Runs execute in — one per distinct ref, shared by every **Run** of that ref ([ADR-0015](docs/adr/0015-shared-per-ref-worktree.md)) — never the Environment itself.
 _Avoid_: Config (for a single Before/After side — that's an **Environment**; "config" is reserved for the public skill-name surface above), variant, arm, side (except `VerdictSide`, which is the per-environment half of a verdict).
 
 **Mode**:
@@ -97,8 +97,27 @@ The Judge in comparative mode: reads the Before and After responses head-to-head
 _Avoid_: Scoring, rating, A/B preference (reserve A/B for the whole benchmark).
 
 **Numbers**:
-The **efficiency signal — the main thing a restructure is trying to improve.** The cost, token, **tool-call**, and time deltas, captured numerically from every run and always compared Before→After regardless of probe kind. No LLM, never gates — the dev reads it. **Cost, tokens, and tool-call counts are exact** — the same work bills and calls the same however the runs are executed — while **time (Duration) is advisory**: it inflates when runs share resources, so the report marks it not-comparable unless the runs were unparallelized. Whether the tool calls were the *right* ones (read the proper chunk vs grepped around blindly) is read from the run's trace, not a number.
+The **efficiency signal — the main thing a restructure is trying to improve.** Captured from every run, always compared Before→After regardless of probe kind. No LLM, never gates — the dev reads it. The headline figures:
+- **Context window** — `BaseContextTokens` (deterministic turn-1 resident context = the pure cost of the Environment, the clean config signal) and `PeakContextTokens` (high-water mark, exploration-noisy). Both stored and shown, surfaced *above* raw input tokens — how much window the Environment eats matters more to a dev than cumulative input.
+- **Cost, tokens, tool-call counts** — **exact**: the same work bills and calls the same however runs execute, so they survive a cache hit unchanged.
+- **Duration** — two numbers per run: total wall-clock (`duration_ms`) and model **generation time** (`duration_api_ms`). Wall-clock is **advisory** — it absorbs local contention under concurrency and the differing conditions of a cached-Before/fresh-After split. Generation time is the **comparable** duration signal: it tracks the model's own work, so its Before→After delta stays valid both under concurrency and across a cache hit. Each run is stamped with the concurrency it was measured under.
+
+Whether the tool calls were the *right* ones (read the proper chunk vs grepped around blindly) is read from the run's trace, not a number.
 _Avoid_: Metrics (overloaded), stats.
+
+### Run cache
+
+**Run cache**:
+The persistence layer that stores completed **RunRecords** so an unchanged environment is never re-run. The cached unit is the raw **Run** (the `claude -p` output), never a **Verdict** or **Numbers** — grading is re-done every time from the stored record, so editing a **Rule**, **Severity**, or **Check** costs no run. Side-agnostic: **Before** and **After** are labels, not cache identities — either side hits the cache when its **Fingerprint** matches.
+_Avoid_: Result cache, memoization, before-cache (it is not before-only).
+
+**Fingerprint**:
+The Run cache key: `hash(resolved commit SHA + effective MCP config + memory policy + model + effort + CLI version)` paired with the probe's `(prompt content + Mode)`. Keyed on the **resolved SHA**, never the branch name (`benchmark/before` is a moving pointer), and on the probe's prompt *content*, never its **Probe** ID (an edited prompt under the same ID must miss). **CLI version** defaults to detected `claude --version` so a bump misses and re-runs; `--cli-version <token>` overrides that one component to reuse a pool across bumps (or deliberately split it) — and every **RunRecord** also *stamps* its true CLI version, so a pinned, version-mixed **Sample pool** stays detectable in the report. Deliberately excludes everything that is re-graded — **Rules**, **Severities**, **Checks**, the **Judge**.
+_Avoid_: Cache key (use as descriptor only), hash, signature.
+
+**Sample pool**:
+The ordered, append-only list of **RunRecords** a **Fingerprint** maps to. A request for odd N is served `pool[:N]`: grow by **appending** fresh runs when the pool is short, shrink by taking the deterministic **prefix** when it is long (never discarding the surplus). Order is load-bearing — `pool[0]` is the representative answer the **Preference comparison** reads, so appending never perturbs an existing verdict.
+_Avoid_: Sample set, sample bag (it is ordered, not a bag).
 
 ## Flagged ambiguities
 
