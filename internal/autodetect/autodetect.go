@@ -17,13 +17,16 @@ import (
 )
 
 // Resolution is the committish pair the bare benchmark runs, plus human labels
-// for the spend plan.
+// for the spend plan. AfterVolatile is set when After is the synthetic
+// working-tree snapshot rather than a committed ref, so the Run cache can skip it
+// (it changes every iteration — ADR-0016 baseline-only cache).
 type Resolution struct {
-	Before     string
-	After      string
-	BeforeDesc string
-	AfterDesc  string
-	Dirty      bool
+	Before        string
+	After         string
+	BeforeDesc    string
+	AfterDesc     string
+	Dirty         bool
+	AfterVolatile bool
 }
 
 // Resolve picks Before and After for repo per ADR-0008. beforeOverride and
@@ -55,7 +58,7 @@ func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (R
 		if err != nil {
 			return Resolution{}, fmt.Errorf("capture working tree: %w", err)
 		}
-		res.After, res.AfterDesc = sha, "working tree — uncommitted edits ("+short(sha)+")"
+		res.After, res.AfterDesc, res.AfterVolatile = sha, "working tree — uncommitted edits ("+short(sha)+")", true
 	default:
 		sha, err := commitOf(ctx, abs, "HEAD")
 		if err != nil {
@@ -103,38 +106,39 @@ func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (R
 // comparison): the override when set, else the working tree — temp-committed when
 // dirty so uncommitted and untracked env edits count, HEAD when clean. It mirrors
 // the After half of Resolve without its A/B "nothing to compare" error, so a
-// clean default branch still assesses fine.
-func ResolveOne(ctx context.Context, repo, override string) (ref, desc string, err error) {
+// clean default branch still assesses fine. volatile is true only for the
+// synthetic working-tree snapshot, so the Run cache skips it (ADR-0016).
+func ResolveOne(ctx context.Context, repo, override string) (ref, desc string, volatile bool, err error) {
 	abs, err := filepath.Abs(repo)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve target: %w", err)
+		return "", "", false, fmt.Errorf("resolve target: %w", err)
 	}
 	if _, err := git(ctx, abs, nil, "rev-parse", "--git-dir"); err != nil {
-		return "", "", fmt.Errorf("%s is not a git repository", abs)
+		return "", "", false, fmt.Errorf("%s is not a git repository", abs)
 	}
 	if override != "" {
 		sha, err := commitOf(ctx, abs, override)
 		if err != nil {
-			return "", "", fmt.Errorf("--ref %q: %w", override, err)
+			return "", "", false, fmt.Errorf("--ref %q: %w", override, err)
 		}
-		return sha, label(override, sha), nil
+		return sha, label(override, sha), false, nil
 	}
 	dirty, err := isDirty(ctx, abs)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	if dirty {
 		sha, err := tempCommitWorkingTree(ctx, abs)
 		if err != nil {
-			return "", "", fmt.Errorf("capture working tree: %w", err)
+			return "", "", false, fmt.Errorf("capture working tree: %w", err)
 		}
-		return sha, "working tree — uncommitted edits (" + short(sha) + ")", nil
+		return sha, "working tree — uncommitted edits (" + short(sha) + ")", true, nil
 	}
 	sha, err := commitOf(ctx, abs, "HEAD")
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	return sha, label("HEAD", sha), nil
+	return sha, label("HEAD", sha), false, nil
 }
 
 // tempCommitWorkingTree snapshots the working tree (tracked edits + untracked

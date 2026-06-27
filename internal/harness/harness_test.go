@@ -157,12 +157,15 @@ func TestClaudeArgs(t *testing.T) {
 		return false
 	}
 
-	noMCP := claudeArgs("q", "", "{}")
+	noMCP := claudeArgs("q", "", "{}", "", "")
 	if !has(noMCP, "--strict-mcp-config") {
 		t.Error("--strict-mcp-config must always be present")
 	}
 	if has(noMCP, "--mcp-config") {
 		t.Error("--mcp-config must be absent when no config is given")
+	}
+	if has(noMCP, "--model") || has(noMCP, "--effort") {
+		t.Error("--model/--effort must be absent when unset (one-shot Run keeps claude defaults)")
 	}
 	for _, f := range []string{"-p", "--disallowedTools", "--disable-slash-commands"} {
 		if !has(noMCP, f) {
@@ -170,9 +173,15 @@ func TestClaudeArgs(t *testing.T) {
 		}
 	}
 
-	withMCP := claudeArgs("q", "/tmp/cg.json", "{}")
+	withMCP := claudeArgs("q", "/tmp/cg.json", "{}", "claude-opus-4-8", "medium")
 	if !pairAt(withMCP, "--mcp-config", "/tmp/cg.json") {
 		t.Errorf("expected --mcp-config /tmp/cg.json, got %v", withMCP)
+	}
+	if !pairAt(withMCP, "--model", "claude-opus-4-8") {
+		t.Errorf("expected --model claude-opus-4-8, got %v", withMCP)
+	}
+	if !pairAt(withMCP, "--effort", "medium") {
+		t.Errorf("expected --effort medium, got %v", withMCP)
 	}
 	if !has(withMCP, "--strict-mcp-config") {
 		t.Error("--strict-mcp-config must stay present with a config")

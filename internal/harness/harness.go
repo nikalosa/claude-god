@@ -27,6 +27,8 @@ type Opts struct {
 	NoMemSnapshot bool
 	MemorySource  string
 	MCPConfig     string
+	Model         string
+	Effort        string
 }
 
 type Result struct {
@@ -34,12 +36,16 @@ type Result struct {
 }
 
 // PrepareOpts configures a per-ref worktree: the target repo, the committish to
-// check out, and the memory policy injected once for the ref's lifetime.
+// check out, the memory policy injected once for the ref's lifetime, and the
+// model/effort every Run of this ref invokes claude with (controlled variables,
+// keyed by the Run cache).
 type PrepareOpts struct {
 	TargetRepo    string
 	Ref           string
 	NoMemSnapshot bool
 	MemorySource  string
+	Model         string
+	Effort        string
 }
 
 // Worktree is a checkout of one ref, shared by every Run of that ref (ADR-0015).
@@ -51,6 +57,8 @@ type Worktree struct {
 	path       string
 	tmpdir     string
 	targetRepo string
+	model      string
+	effort     string
 	restoreMem func()
 }
 
@@ -88,7 +96,7 @@ func Prepare(ctx context.Context, opts PrepareOpts) (*Worktree, error) {
 		return nil, fmt.Errorf("worktree checkout: %w", err)
 	}
 
-	w := &Worktree{path: path, tmpdir: tmpdir, targetRepo: opts.TargetRepo, restoreMem: func() {}}
+	w := &Worktree{path: path, tmpdir: tmpdir, targetRepo: opts.TargetRepo, model: opts.Model, effort: opts.Effort, restoreMem: func() {}}
 	if src := memorySource(path, opts.MemorySource, opts.NoMemSnapshot); src != "" {
 		restore, err := swapMemory(path, src)
 		if err != nil {
@@ -117,7 +125,7 @@ func (w *Worktree) RunIn(ctx context.Context, prompt, mcpCfg string) (*Result, e
 
 	mcp := mcpConfig(w.path, Opts{MCPConfig: mcpCfg})
 	streamPath := filepath.Join(artifacts, "stream.jsonl")
-	if err := invokeClaude(ctx, w.path, prompt, mcp, streamPath); err != nil {
+	if err := invokeClaude(ctx, w.path, prompt, mcp, w.model, w.effort, streamPath); err != nil {
 		return nil, fmt.Errorf("claude -p: %w", err)
 	}
 
@@ -163,6 +171,8 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 		Ref:           opts.Branch,
 		NoMemSnapshot: opts.NoMemSnapshot,
 		MemorySource:  opts.MemorySource,
+		Model:         opts.Model,
+		Effort:        opts.Effort,
 	})
 	if err != nil {
 		return nil, err
@@ -226,7 +236,7 @@ func mcpConfig(worktree string, opts Opts) string {
 	return ""
 }
 
-func invokeClaude(ctx context.Context, cwd, prompt, mcp, streamPath string) error {
+func invokeClaude(ctx context.Context, cwd, prompt, mcp, model, effort, streamPath string) error {
 	out, err := os.Create(streamPath)
 	if err != nil {
 		return err
@@ -247,7 +257,7 @@ func invokeClaude(ctx context.Context, cwd, prompt, mcp, streamPath string) erro
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "claude", claudeArgs(prompt, mcp, settings)...)
+	cmd := exec.CommandContext(ctx, "claude", claudeArgs(prompt, mcp, settings, model, effort)...)
 	cmd.Dir = cwd
 	cmd.Env = SanitizedEnv(os.Environ())
 	cmd.Stdout = out
@@ -371,8 +381,10 @@ func SanitizedEnv(env []string) []string {
 }
 
 // claudeArgs builds the headless claude -p argv. Split out so tests pin the
-// read-only and MCP flags without shelling out.
-func claudeArgs(prompt, mcp, settings string) []string {
+// read-only and MCP flags without shelling out. model/effort pin the model and
+// reasoning effort as controlled variables the Run cache keys on; each is passed
+// only when set, so the one-shot Run path keeps claude's configured defaults.
+func claudeArgs(prompt, mcp, settings, model, effort string) []string {
 	args := []string{"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
@@ -381,6 +393,12 @@ func claudeArgs(prompt, mcp, settings string) []string {
 		"--settings", settings,
 		"--strict-mcp-config",
 		"--disable-slash-commands"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if effort != "" {
+		args = append(args, "--effort", effort)
+	}
 	if mcp != "" {
 		args = append(args, "--mcp-config", mcp)
 	}

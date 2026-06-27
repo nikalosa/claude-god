@@ -6,15 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync/atomic"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
 	"github.com/nikalosa/claude-god/internal/autodetect"
+	"github.com/nikalosa/claude-god/internal/cache"
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
@@ -32,6 +31,7 @@ var (
 	flagAssessSamples     int
 	flagAssessConcurrency int
 	flagAssessYes         bool
+	assessCacheFlags      cacheFlags
 )
 
 var assessCmd = &cobra.Command{
@@ -69,7 +69,7 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 	}
 
 	ctx := cmd.Context()
-	ref, desc, err := autodetect.ResolveOne(ctx, target, flagAssessRef)
+	ref, desc, volatile, err := autodetect.ResolveOne(ctx, target, flagAssessRef)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,22 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	printAssessPlan(os.Stderr, desc, corpusPath, probes, flagAssessSamples, flagAssessConcurrency)
+	memSrc, err := memorySourceFor(target)
+	if err != nil {
+		return err
+	}
+	mem := memPolicy{source: memSrc}
+	store, err := newStore(target, mem, assessCacheFlags, flagAssessConcurrency)
+	if err != nil {
+		return err
+	}
+	env := Env{Ref: ref, MCPConfig: flagAssessMCP, Volatile: volatile}
+
+	cached, toRun, err := cachePlan(store, probes, flagAssessSamples, assessCacheFlags.noCache, env)
+	if err != nil {
+		return err
+	}
+	printAssessPlan(os.Stderr, desc, corpusPath, probes, flagAssessSamples, flagAssessConcurrency, cached, toRun)
 	ok, err := confirm(flagAssessYes, os.Stdin)
 	if err != nil {
 		return err
@@ -101,18 +116,13 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	memSrc, err := memorySourceFor(target)
-	if err != nil {
-		return err
-	}
-	env := Env{Ref: ref, MCPConfig: flagAssessMCP}
-	run, cleanup, err := sharedRun(ctx, target, memPolicy{source: memSrc}, env)
+	run, cleanup, err := sharedRun(ctx, target, mem, assessCacheFlags.model, assessCacheFlags.effort, env)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	aggs, err := runSingleEnv(ctx, probes, env, flagAssessSamples, flagAssessConcurrency, run, j)
+	aggs, err := runSingleEnv(ctx, probes, env, flagAssessSamples, flagAssessConcurrency, run, store, assessCacheFlags.noCache, j)
 	if err != nil {
 		return err
 	}
@@ -133,64 +143,21 @@ func judgeForAssess(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
-// runSingleEnv samples every probe on one ref in a bounded pool, then grades each
-// probe with an empty After side: rule_based probes grade absolutely, comparative
-// probes skip the Preference comparison (GradeProbe needs two answers) and keep
-// only their Numbers. Like runBenchmark, results store by probe index so
-// concurrency never changes the output (ADR-0005); comparative probes dispatch
-// first (LPT) since they run ~5x longer.
-func runSingleEnv(ctx context.Context, probes []dsl.Probe, env Env, samples, concurrency int, run runFunc, j judge.Judge) ([]aggregator.AggregatedOutcome, error) {
+// runSingleEnv serves every probe's Sample pool on one ref from the Run cache,
+// running only the misses, then grades each probe with an empty After side:
+// rule_based probes grade absolutely, comparative probes skip the Preference
+// comparison (GradeProbe needs two answers) and keep only their Numbers. It
+// shares the cache pool machinery with runBenchmark (one side instead of two).
+func runSingleEnv(ctx context.Context, probes []dsl.Probe, env Env, samples, concurrency int, run runFunc, store *cache.Store, noCache bool, j judge.Judge) ([]aggregator.AggregatedOutcome, error) {
 	recs := make([][]*parser.RunRecord, len(probes))
-	for pi := range probes {
-		recs[pi] = make([]*parser.RunRecord, samples)
+	pools, err := planPools(store, probes, samples, noCache, []side{{env, recs, "run"}})
+	if err != nil {
+		return nil, err
 	}
-
-	order := make([]int, len(probes))
-	for i := range order {
-		order[i] = i
+	if err := runMisses(ctx, pools, concurrency, run, store, env); err != nil {
+		return nil, err
 	}
-	sort.SliceStable(order, func(a, b int) bool {
-		return probes[order[a]].Comparative() && !probes[order[b]].Comparative()
-	})
-
-	type task struct {
-		prompt, label string
-		dst           **parser.RunRecord
-	}
-	var tasks []task
-	for _, pi := range order {
-		probe := probes[pi]
-		prompt := taskPrompt(probe)
-		for si := 0; si < samples; si++ {
-			tasks = append(tasks, task{prompt, fmt.Sprintf("probe %s sample %d", probe.ID, si+1), &recs[pi][si]})
-		}
-	}
-
-	start := time.Now()
-	runLimit, retryGate := mcpGuard(concurrency, env)
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(runLimit)
-	var done, inTok, outTok, costMicros int64
-	total := len(tasks)
-	for _, t := range tasks {
-		g.Go(func() error {
-			rec, err := runWithRetry(gctx, run, env, t.prompt, t.label, retryGate)
-			if err != nil {
-				return fmt.Errorf("%s: %w", t.label, err)
-			}
-			*t.dst = rec
-			atomic.AddInt64(&inTok, int64(rec.TotalInputTokens()))
-			atomic.AddInt64(&outTok, int64(rec.TotalOutputTokens()))
-			atomic.AddInt64(&costMicros, int64(rec.TotalCost*1e6))
-			fmt.Fprintf(os.Stderr, "[%d/%d] %s in / %s out · $%.2f · %s\n",
-				atomic.AddInt64(&done, 1), total,
-				humanCount(atomic.LoadInt64(&inTok)), humanCount(atomic.LoadInt64(&outTok)),
-				float64(atomic.LoadInt64(&costMicros))/1e6,
-				time.Since(start).Round(time.Second))
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
+	if err := fillFromCache(store, pools, samples, noCache); err != nil {
 		return nil, err
 	}
 
@@ -215,7 +182,7 @@ func runSingleEnv(ctx context.Context, probes []dsl.Probe, env Env, samples, con
 	return aggs, nil
 }
 
-func printAssessPlan(w io.Writer, envDesc, corpus string, probes []dsl.Probe, samples, concurrency int) {
+func printAssessPlan(w io.Writer, envDesc, corpus string, probes []dsl.Probe, samples, concurrency, cached, toRun int) {
 	var rules, comparative int
 	for _, p := range probes {
 		if p.Comparative() {
@@ -229,7 +196,7 @@ func printAssessPlan(w io.Writer, envDesc, corpus string, probes []dsl.Probe, sa
 	fmt.Fprintf(w, "  Corpus:      %s (%d probe(s): %d rule-based, %d comparative)\n", corpus, len(probes), rules, comparative)
 	fmt.Fprintf(w, "  Samples:     %d\n", samples)
 	fmt.Fprintf(w, "  Concurrency: %d\n", concurrency)
-	fmt.Fprintf(w, "  Runs:        %d claude -p calls (%d probes × %d samples)\n", len(probes)*samples, len(probes), samples)
+	fmt.Fprintf(w, "  Runs:        %d cached · %d to run (of %d: %d probes × %d samples)\n", cached, toRun, len(probes)*samples, len(probes), samples)
 }
 
 func init() {
@@ -243,5 +210,6 @@ func init() {
 	f.IntVar(&flagAssessSamples, "samples", 1, "samples per probe (odd N; default 1)")
 	f.IntVar(&flagAssessConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagAssessYes, "yes", false, "skip the spend-plan confirmation prompt")
+	addCacheFlags(f, &assessCacheFlags)
 	rootCmd.AddCommand(assessCmd)
 }

@@ -13,11 +13,30 @@ import (
 	"time"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
+	"github.com/nikalosa/claude-god/internal/cache"
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/judge"
 	"github.com/nikalosa/claude-god/internal/parser"
 	"github.com/nikalosa/claude-god/internal/report"
 )
+
+// tc is a Run cache backed by a fresh temp dir with a faked resolver (no git),
+// so the pool tests exercise the real cache path without shelling out. A fresh
+// store per call keeps determinism tests honest: both concurrency levels run all
+// samples rather than the second serving the first's writes.
+func tc(t *testing.T) *cache.Store {
+	t.Helper()
+	return cache.New(cache.Opts{
+		Root:            t.TempDir(),
+		Model:           "m",
+		Effort:          "e",
+		CLIVersionKey:   "v",
+		CLIVersionStamp: "v",
+		MemTag:          "none",
+		Concurrency:     1,
+		Resolve:         func(ref, mcp string) (string, string, error) { return ref, mcp, nil },
+	})
+}
 
 // fakeRun is a deterministic runFunc: its record is a pure function of
 // (env, prompt), so the only thing that can vary between concurrency levels
@@ -54,11 +73,11 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()
 
-	v1, p1, a1, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 1, fakeRun, nil, "")
+	v1, p1, a1, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 1, fakeRun, tc(t), false, nil, "")
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	v8, p8, a8, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 8, fakeRun, nil, "")
+	v8, p8, a8, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 8, fakeRun, tc(t), false, nil, "")
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}
@@ -98,7 +117,7 @@ func TestRunBenchmark_DumpDirWritesAnswers(t *testing.T) {
 	probes := openEndedProbes("alpha", "beta")
 	j := judge.StubJudge{Pref: judge.Preference{Outcome: judge.AfterBetter}}
 
-	if _, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, j, dir); err != nil {
+	if _, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, tc(t), false, j, dir); err != nil {
 		t.Fatalf("runBenchmark: %v", err)
 	}
 
@@ -150,11 +169,11 @@ func TestRunBenchmark_JudgeDeterministicAcrossConcurrency(t *testing.T) {
 	ctx := context.Background()
 	j := judge.StubJudge{Pref: judge.Preference{Outcome: judge.AfterBetter}}
 
-	v1, p1, a1, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 1, fakeRun, j, "")
+	v1, p1, a1, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 1, fakeRun, tc(t), false, j, "")
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	v8, p8, a8, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 8, fakeRun, j, "")
+	v8, p8, a8, err := runBenchmark(ctx, probes, Env{Ref: "before"}, Env{Ref: "after"}, 3, 8, fakeRun, tc(t), false, j, "")
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}
@@ -193,7 +212,7 @@ func TestRunBenchmark_GradesConcurrently(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, n, fakeRun, j, "")
+		_, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, n, fakeRun, tc(t), false, j, "")
 		done <- err
 	}()
 
@@ -218,7 +237,7 @@ func TestRunBenchmark_HardGradeErrorAborts(t *testing.T) {
 	}}}}
 	j := judge.StubJudge{ScoreErr: errors.New("boom")}
 
-	if _, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, j, ""); err == nil {
+	if _, _, _, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, tc(t), false, j, ""); err == nil {
 		t.Fatal("want runBenchmark to abort on a hard grade error, got nil")
 	}
 }
@@ -230,7 +249,7 @@ func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
 	probes := openEndedProbes("alpha", "beta")
 	j := judge.StubJudge{PrefErr: errors.New("boom")}
 
-	verdicts, prefs, aggs, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, j, "")
+	verdicts, prefs, aggs, err := runBenchmark(context.Background(), probes, Env{Ref: "before"}, Env{Ref: "after"}, 1, 4, fakeRun, tc(t), false, j, "")
 	if err != nil {
 		t.Fatalf("preference error must not abort: %v", err)
 	}
@@ -253,7 +272,7 @@ func TestRunBenchmark_PlanProbeEndToEnd(t *testing.T) {
 		Exhaustive: judge.Tie, Direct: judge.AfterBetter, Reasoning: "after has clearer steps",
 	}}
 
-	verdicts, prefs, deltas, err := runBenchmark(context.Background(), []dsl.Probe{probe}, Env{Ref: "before"}, Env{Ref: "after"}, 1, 1, fakeRun, j, "")
+	verdicts, prefs, deltas, err := runBenchmark(context.Background(), []dsl.Probe{probe}, Env{Ref: "before"}, Env{Ref: "after"}, 1, 1, fakeRun, tc(t), false, j, "")
 	if err != nil {
 		t.Fatalf("runBenchmark: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/nikalosa/claude-god/internal/aggregator"
+	"github.com/nikalosa/claude-god/internal/cache"
 	"github.com/nikalosa/claude-god/internal/dsl"
 	"github.com/nikalosa/claude-god/internal/harness"
 	"github.com/nikalosa/claude-god/internal/judge"
@@ -35,15 +36,23 @@ var (
 	flagConcurrency   int
 	flagNoMemSnapshot bool
 	flagDumpDir       string
+	runCacheFlags     cacheFlags
 )
 
 // Env is one side of a comparison: the git ref under test plus the MCP config it
 // carries. It makes the CONTEXT.md "Environment" concrete — the ref is the base
 // layer (code + in-tree CLAUDE.md/rules/docs), MCPConfig an explicit layer on
 // top — so Before and After can share a ref and differ only in MCP.
+//
+// Volatile marks the uncommitted working-tree snapshot (a synthetic, throwaway
+// commit). The Run cache is baseline-only: a volatile side is never read or
+// written, because it changes every iteration so a hit is impossible and a write
+// would only mint a junk fingerprint dir per run (ADR-0016). Committed refs cache
+// normally.
 type Env struct {
 	Ref       string
 	MCPConfig string
+	Volatile  bool
 }
 
 // runFunc executes one probe sample in an Environment and returns its record.
@@ -93,12 +102,17 @@ var runCmd = &cobra.Command{
 		ctx := context.Background()
 		before := Env{Ref: flagBefore, MCPConfig: flagBeforeMCP}
 		after := Env{Ref: flagAfter, MCPConfig: flagAfterMCP}
-		run, cleanup, err := sharedRun(ctx, target, memPolicy{noSnapshot: flagNoMemSnapshot}, before, after)
+		mem := memPolicy{noSnapshot: flagNoMemSnapshot}
+		store, err := newStore(target, mem, runCacheFlags, flagConcurrency)
+		if err != nil {
+			return err
+		}
+		run, cleanup, err := sharedRun(ctx, target, mem, runCacheFlags.model, runCacheFlags.effort, before, after)
 		if err != nil {
 			return err
 		}
 		defer cleanup()
-		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagSamples, flagConcurrency, run, j, flagDumpDir)
+		verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagSamples, flagConcurrency, run, store, runCacheFlags.noCache, j, flagDumpDir)
 		if err != nil {
 			return err
 		}
@@ -144,84 +158,32 @@ func taskPrompt(probe dsl.Probe) string {
 	return probe.Prompt
 }
 
-// runBenchmark samples every probe on the before and after branches in a
-// bounded parallel pool, then grades the probes in a second bounded pool,
-// returning the verdicts, open-ended preferences, and Numbers. Both pools are
-// scheduling details: results are collected by index, so concurrency changes
-// nothing about the result; only Duration inflates under concurrency (see
-// ADR-0005). Shared by run and calibrate (calibrate passes the same branch on
-// both sides). run is injected so the pool is testable without claude.
-func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, samples, concurrency int, run runFunc, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
+// runBenchmark serves every probe's Sample pool on the before and after sides
+// from the Run cache, running only the misses in a bounded parallel pool, then
+// grades the probes in a second bounded pool, returning the verdicts, open-ended
+// preferences, and Numbers. Each completed run is written through to the cache
+// immediately (crash-resume), and the pools are re-read from disk before grading
+// so the graded order is exactly the cached order — making two runs of identical
+// inputs produce identical grades, pool[0] stable for the Preference comparison
+// (ADR-0016). --no-cache bypasses the read (fresh draws) but still writes.
+// Concurrency is a scheduling detail: results are keyed by probe, so it never
+// changes the output, only wall-clock Duration (ADR-0005). run is injected so
+// the pool is testable without claude.
+func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, samples, concurrency int, run runFunc, store *cache.Store, noCache bool, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
 
-	type task struct {
-		spec               Env
-		prompt, label, env string
-		dst                **parser.RunRecord
-	}
-	for pi := range probes {
-		beforeRecs[pi] = make([]*parser.RunRecord, samples)
-		afterRecs[pi] = make([]*parser.RunRecord, samples)
-	}
-
-	// Dispatch comparative probes first (LPT): open-ended and plan probes run
-	// ~5x longer than rule-based, so starting the long poles at t=0 and
-	// backfilling with cheap probes flattens the tail. Results store by original
-	// probe index, so dispatch order never changes the graded output.
-	order := make([]int, len(probes))
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		return probes[order[a]].Comparative() && !probes[order[b]].Comparative()
+	pools, err := planPools(store, probes, samples, noCache, []side{
+		{before, beforeRecs, "before"}, {after, afterRecs, "after"},
 	})
-
-	var tasks []task
-	for _, pi := range order {
-		probe := probes[pi]
-		prompt := taskPrompt(probe)
-		for si := 0; si < samples; si++ {
-			tasks = append(tasks,
-				task{before, prompt, fmt.Sprintf("probe %s before sample %d", probe.ID, si+1), "before", &beforeRecs[pi][si]},
-				task{after, prompt, fmt.Sprintf("probe %s after sample %d", probe.ID, si+1), "after", &afterRecs[pi][si]},
-			)
-		}
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	perEnv := int64(samples * len(probes))
-	start := time.Now()
-	runLimit, retryGate := mcpGuard(concurrency, before, after)
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(runLimit)
-	var done, beforeDone, afterDone, inTok, outTok, costMicros int64
-	total := len(tasks)
-	for _, t := range tasks {
-		g.Go(func() error {
-			rec, err := runWithRetry(gctx, run, t.spec, t.prompt, t.label, retryGate)
-			if err != nil {
-				return fmt.Errorf("%s: %w", t.label, err)
-			}
-			*t.dst = rec
-			envDone := &afterDone
-			if t.env == "before" {
-				envDone = &beforeDone
-			}
-			atomic.AddInt64(envDone, 1)
-			atomic.AddInt64(&inTok, int64(rec.TotalInputTokens()))
-			atomic.AddInt64(&outTok, int64(rec.TotalOutputTokens()))
-			atomic.AddInt64(&costMicros, int64(rec.TotalCost*1e6))
-			fmt.Fprintf(os.Stderr, "[%d/%d] before %d/%d · after %d/%d · %s in / %s out · $%.2f · %s\n",
-				atomic.AddInt64(&done, 1), total,
-				atomic.LoadInt64(&beforeDone), perEnv,
-				atomic.LoadInt64(&afterDone), perEnv,
-				humanCount(atomic.LoadInt64(&inTok)), humanCount(atomic.LoadInt64(&outTok)),
-				float64(atomic.LoadInt64(&costMicros))/1e6,
-				time.Since(start).Round(time.Second))
-			return nil
-		})
+	if err := runMisses(ctx, pools, concurrency, run, store, before, after); err != nil {
+		return nil, nil, nil, err
 	}
-	if err := g.Wait(); err != nil {
+	if err := fillFromCache(store, pools, samples, noCache); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -267,6 +229,151 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, sa
 		}
 	}
 	return aggregator.Compare(aggs), prefs, aggs, nil
+}
+
+// side is one comparison arm fed to planPools: the Environment, the per-probe
+// record slices to fill, and the label half.
+type side struct {
+	env  Env
+	recs [][]*parser.RunRecord
+	name string
+}
+
+// pool is one (probe, side) Sample pool: its cache key, how many fresh runs
+// (misses) it needs, the fresh records those runs produced (slot-indexed, so
+// concurrent writers need no lock), and where its graded records land.
+type pool struct {
+	env     Env
+	prompt  string
+	key     string
+	label   string
+	misses  int
+	fresh   []*parser.RunRecord
+	dst     *[]*parser.RunRecord
+	compare bool
+}
+
+// planPools resolves each (probe, side) to its cache key, counts how many of the
+// requested samples are already served from the cache, and sizes the misses to
+// run. A volatile side (the uncommitted working tree) skips the cache entirely —
+// no key, no read — so all its samples are misses (ADR-0016: baseline-only cache).
+// Comparative pools sort first (LPT): open-ended and plan runs take ~5x longer, so
+// dispatching their misses at t=0 flattens the tail.
+func planPools(store *cache.Store, probes []dsl.Probe, samples int, noCache bool, sides []side) ([]pool, error) {
+	var pools []pool
+	for pi := range probes {
+		prompt := taskPrompt(probes[pi])
+		for _, sd := range sides {
+			served := 0
+			var key string
+			if !sd.env.Volatile {
+				k, err := store.Key(sd.env.Ref, sd.env.MCPConfig, prompt)
+				if err != nil {
+					return nil, fmt.Errorf("cache key for probe %s: %w", probes[pi].ID, err)
+				}
+				key = k
+				if !noCache {
+					existing, err := store.Read(key)
+					if err != nil {
+						return nil, fmt.Errorf("read cache for probe %s: %w", probes[pi].ID, err)
+					}
+					served = min(len(existing), samples)
+				}
+			}
+			misses := samples - served
+			pools = append(pools, pool{
+				env:     sd.env,
+				prompt:  prompt,
+				key:     key,
+				label:   fmt.Sprintf("probe %s %s", probes[pi].ID, sd.name),
+				misses:  misses,
+				fresh:   make([]*parser.RunRecord, misses),
+				dst:     &sd.recs[pi],
+				compare: probes[pi].Comparative(),
+			})
+		}
+	}
+	sort.SliceStable(pools, func(a, b int) bool { return pools[a].compare && !pools[b].compare })
+	return pools, nil
+}
+
+// missTask is one fresh run: pool p, writing its result into p.fresh[slot].
+type missTask struct {
+	p    *pool
+	slot int
+}
+
+// runMisses runs every pool's missing samples in one bounded pool and writes each
+// completed run through to the cache immediately (crash-resume + the time win).
+// A fully-cached invocation has no misses and never enters claude (so a lazy
+// worktree is never prepared). Each result also lands in p.fresh[slot] so the
+// --no-cache path can grade exactly the draws it just made.
+func runMisses(ctx context.Context, pools []pool, concurrency int, run runFunc, store *cache.Store, guardEnvs ...Env) error {
+	var tasks []missTask
+	for i := range pools {
+		for k := 0; k < pools[i].misses; k++ {
+			tasks = append(tasks, missTask{&pools[i], k})
+		}
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	runLimit, retryGate := mcpGuard(concurrency, guardEnvs...)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runLimit)
+	var done, inTok, outTok, costMicros int64
+	total := int64(len(tasks))
+	for _, t := range tasks {
+		g.Go(func() error {
+			rec, err := runWithRetry(gctx, run, t.p.env, t.p.prompt, t.p.label, retryGate)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t.p.label, err)
+			}
+			if !t.p.env.Volatile {
+				if err := store.Append(t.p.key, rec); err != nil {
+					return fmt.Errorf("%s: cache write: %w", t.p.label, err)
+				}
+			}
+			t.p.fresh[t.slot] = rec
+			atomic.AddInt64(&inTok, int64(rec.TotalInputTokens()))
+			atomic.AddInt64(&outTok, int64(rec.TotalOutputTokens()))
+			atomic.AddInt64(&costMicros, int64(rec.TotalCost*1e6))
+			fmt.Fprintf(os.Stderr, "[%d/%d run] %s · %s in / %s out · $%.2f · %s\n",
+				atomic.AddInt64(&done, 1), total, t.p.label,
+				humanCount(atomic.LoadInt64(&inTok)), humanCount(atomic.LoadInt64(&outTok)),
+				float64(atomic.LoadInt64(&costMicros))/1e6,
+				time.Since(start).Round(time.Second))
+			return nil
+		})
+	}
+	return g.Wait()
+}
+
+// fillFromCache picks the N records each pool grades. A cached side re-reads the
+// pool from disk and takes the deterministic prefix, so the graded order is
+// exactly the persisted order — a re-run of identical inputs grades the identical
+// pool, pool[0] stable for the Preference comparison. A volatile side (uncommitted
+// working tree, never persisted) and --no-cache both grade the fresh draws just
+// made (p.fresh); the latter also keeps the two arms of a Before-vs-Before
+// calibration independent even though they share one Fingerprint.
+func fillFromCache(store *cache.Store, pools []pool, samples int, noCache bool) error {
+	for i := range pools {
+		if noCache || pools[i].env.Volatile {
+			*pools[i].dst = pools[i].fresh
+			continue
+		}
+		full, err := store.Read(pools[i].key)
+		if err != nil {
+			return fmt.Errorf("re-read cache for %s: %w", pools[i].label, err)
+		}
+		if len(full) < samples {
+			return fmt.Errorf("cache pool for %s has %d records, need %d", pools[i].label, len(full), samples)
+		}
+		*pools[i].dst = full[:samples]
+	}
+	return nil
 }
 
 // runWithRetry retries a sample on transient failure (an occasional claude -p
@@ -346,37 +453,54 @@ type memPolicy struct {
 	source     string
 }
 
-// sharedRun prepares one worktree per distinct ref (ADR-0015) and returns a
-// runFunc that dispatches each Env to its ref's shared worktree, plus a cleanup
-// that tears the worktrees down. Memory is injected once per ref in Prepare and
-// removed in cleanup; the caller defers cleanup so it fires only after the run
-// pool drains — a per-run teardown would wipe the slug sibling runs are still
-// writing. Same-ref Before/After collapse to one worktree and differ only in the
-// per-run MCP config.
-func sharedRun(ctx context.Context, target string, mem memPolicy, envs ...Env) (runFunc, func(), error) {
-	trees := map[string]*harness.Worktree{}
+// sharedRun returns a runFunc that prepares one worktree per distinct ref
+// lazily — on the first miss that needs that ref — and dispatches each Env to its
+// ref's shared worktree, plus a cleanup that tears down whatever was prepared
+// (ADR-0015). Lazy preparation is what makes a fully-cached ref do zero checkouts
+// (ADR-0016 §9): the cache lookup runs first, and if every sample is served the
+// runFunc is never called, so Prepare never fires. Memory is injected once per
+// ref and removed in cleanup; the caller defers cleanup so it fires only after
+// the run pool drains — a per-run teardown would wipe the slug sibling runs are
+// still writing. Same-ref Before/After collapse to one worktree and differ only
+// in the per-run MCP config; model/effort are the controlled run variables.
+func sharedRun(ctx context.Context, target string, mem memPolicy, model, effort string, envs ...Env) (runFunc, func(), error) {
+	type lazyTree struct {
+		once sync.Once
+		wt   *harness.Worktree
+		err  error
+	}
+	trees := map[string]*lazyTree{}
+	for _, ref := range distinctRefs(envs) {
+		trees[ref] = &lazyTree{}
+	}
 	cleanup := func() {
-		for _, wt := range trees {
-			_ = wt.Close()
+		for _, lt := range trees {
+			if lt.wt != nil {
+				_ = lt.wt.Close()
+			}
 		}
 	}
-	for _, ref := range distinctRefs(envs) {
-		wt, err := harness.Prepare(ctx, harness.PrepareOpts{
-			TargetRepo:    target,
-			Ref:           ref,
-			NoMemSnapshot: mem.noSnapshot,
-			MemorySource:  mem.source,
-		})
-		if err != nil {
-			cleanup()
-			return nil, nil, fmt.Errorf("prepare worktree for %s: %w", ref, err)
+	prepare := func(ref string) (*harness.Worktree, error) {
+		lt, ok := trees[ref]
+		if !ok {
+			return nil, fmt.Errorf("no tracked worktree for ref %q", ref)
 		}
-		trees[ref] = wt
+		lt.once.Do(func() {
+			lt.wt, lt.err = harness.Prepare(ctx, harness.PrepareOpts{
+				TargetRepo:    target,
+				Ref:           ref,
+				NoMemSnapshot: mem.noSnapshot,
+				MemorySource:  mem.source,
+				Model:         model,
+				Effort:        effort,
+			})
+		})
+		return lt.wt, lt.err
 	}
 	run := func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
-		wt, ok := trees[env.Ref]
-		if !ok {
-			return nil, fmt.Errorf("no prepared worktree for ref %q", env.Ref)
+		wt, err := prepare(env.Ref)
+		if err != nil {
+			return nil, fmt.Errorf("prepare worktree for %s: %w", env.Ref, err)
 		}
 		res, err := wt.RunIn(ctx, prompt, env.MCPConfig)
 		if err != nil {
@@ -433,4 +557,5 @@ func init() {
 	f.IntVar(&flagConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagNoMemSnapshot, "no-memory-snapshot", false, "skip pinning project memory into the run")
 	f.StringVar(&flagDumpDir, "dump-dir", "", "write each probe's judged Before/After answers here (one Markdown file per probe)")
+	addCacheFlags(f, &runCacheFlags)
 }

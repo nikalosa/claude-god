@@ -28,6 +28,7 @@ var (
 	flagEvalSamples     int
 	flagEvalConcurrency int
 	flagEvalYes         bool
+	bareCacheFlags      cacheFlags
 )
 
 // defaultRunE is the bare `claude-benchmark` default action (ADR-0008): it
@@ -78,7 +79,23 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	printPlan(os.Stderr, res, corpusPath, len(probes), flagEvalSamples, flagEvalConcurrency)
+	memSrc, err := memorySourceFor(target)
+	if err != nil {
+		return err
+	}
+	mem := memPolicy{source: memSrc}
+	store, err := newStore(target, mem, bareCacheFlags, flagEvalConcurrency)
+	if err != nil {
+		return err
+	}
+	before := Env{Ref: res.Before}
+	after := Env{Ref: res.After, Volatile: res.AfterVolatile}
+
+	cached, toRun, err := cachePlan(store, probes, flagEvalSamples, bareCacheFlags.noCache, before, after)
+	if err != nil {
+		return err
+	}
+	printPlan(os.Stderr, res, corpusPath, len(probes), flagEvalSamples, flagEvalConcurrency, cached, toRun)
 	ok, err := confirm(flagEvalYes, os.Stdin)
 	if err != nil {
 		return err
@@ -88,19 +105,13 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	memSrc, err := memorySourceFor(target)
-	if err != nil {
-		return err
-	}
-	before := Env{Ref: res.Before}
-	after := Env{Ref: res.After}
-	run, cleanup, err := sharedRun(ctx, target, memPolicy{source: memSrc}, before, after)
+	run, cleanup, err := sharedRun(ctx, target, mem, bareCacheFlags.model, bareCacheFlags.effort, before, after)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagEvalSamples, flagEvalConcurrency, run, j, "")
+	verdicts, prefs, aggs, err := runBenchmark(ctx, probes, before, after, flagEvalSamples, flagEvalConcurrency, run, store, bareCacheFlags.noCache, j, "")
 	if err != nil {
 		return err
 	}
@@ -148,15 +159,15 @@ func chooseCorpus(matches []string, in *os.File) (string, error) {
 	return matches[n-1], nil
 }
 
-func printPlan(w io.Writer, res autodetect.Resolution, corpus string, probes, samples, concurrency int) {
+func printPlan(w io.Writer, res autodetect.Resolution, corpus string, probes, samples, concurrency, cached, toRun int) {
 	fmt.Fprintln(w, "Benchmark plan")
 	fmt.Fprintf(w, "  Before:      %s\n", res.BeforeDesc)
 	fmt.Fprintf(w, "  After:       %s\n", res.AfterDesc)
 	fmt.Fprintf(w, "  Corpus:      %s (%d probe(s))\n", corpus, probes)
 	fmt.Fprintf(w, "  Samples:     %d per environment\n", samples)
 	fmt.Fprintf(w, "  Concurrency: %d\n", concurrency)
-	fmt.Fprintf(w, "  Runs:        %d claude -p calls (%d probes × %d samples × 2 envs)\n",
-		probes*samples*2, probes, samples)
+	fmt.Fprintf(w, "  Runs:        %d cached · %d to run (of %d: %d probes × %d samples × 2 envs)\n",
+		cached, toRun, probes*samples*2, probes, samples)
 }
 
 // confirm gates spend: --yes proceeds; a TTY prompts; a non-TTY without --yes
@@ -203,4 +214,5 @@ func init() {
 	f.IntVar(&flagEvalSamples, "samples", 1, "samples per environment (odd N; default 1)")
 	f.IntVar(&flagEvalConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagEvalYes, "yes", false, "skip the spend-plan confirmation prompt")
+	addCacheFlags(f, &bareCacheFlags)
 }

@@ -1,80 +1,53 @@
 ---
 name: config-bench
-description: Thin conversational wrapper over the `claude-benchmark` CLI — detect Before/After from git, run an A/B benchmark of a repo's Claude environment (CLAUDE.md, .claude/rules, docs, memory) across two configs, and read the report back (Regressions, efficiency Numbers, noise). Use when the dev wants to benchmark or check their Claude environment or a CLAUDE.md restructure, asks "did my restructure regress anything", "is my new context better/cheaper", "check my Claude context", or mentions claude-benchmark — or to **assess** one config absolutely against the corpus when there's no baseline ("score/assess my current config", "how does my context do on this corpus"), which routes to the `assess` command. It reports and the dev decides — it never edits the environment.
+description: Benchmark a Claude Code environment with the `claude-benchmark` CLI — run a repo's probe Corpus across two configs (Before/After) and report which is better on quality and efficiency, or score one config with no baseline. It reports, never edits. Use when the dev wants to know whether a change to CLAUDE.md, rules, MCP, skills, or docs helps or regresses, compare two configs (before vs after), score one config with no baseline, or mentions claude-benchmark.
 ---
 
 # Benchmark a Claude environment
 
-Drive the `claude-benchmark` binary to run the whole **Corpus** across **Before** and
-**After** (one report) and read it back with the dev. The smarts — auto-detection, corpus
-discovery, the spend plan — live in the **binary**, not here
-([ADR-0008](https://github.com/nikalosa/claude-god/blob/main/docs/adr/0008-one-command-evaluation-and-auto-detection.md)). You route,
-confirm, and interpret. Glossary: [CONTEXT.md](https://github.com/nikalosa/claude-god/blob/main/CONTEXT.md).
+You **translate** the dev's request into one `claude-benchmark` run and **read the result back**. The smarts — auto-detecting Before/After, finding the corpus, the spend plan, the cache — live in the **binary**; you map words to flags, confirm, and judge the report. Glossary: [CONTEXT.md](https://github.com/nikalosa/claude-god/blob/main/CONTEXT.md).
 
-## The three jobs
+Read-only: you may *suggest* changes in prose, but **never edit** the environment — not CLAUDE.md, rules, docs, MCP, or memory.
 
-1. **Detect & route.**
-   - Confirm cwd is the Target git repo.
-   - **A/B or single-env?** Two configs to compare (a restructure, before vs after, vs a
-     branch) → the A/B benchmark in jobs 2–3. One config with **no baseline**
-     ("assess/score my current config") → **`assess`** (see *Assess one config*). Default to
-     A/B; only route to assess when there's genuinely nothing to compare against.
-   - State the resolved **Before**/**After** so the dev can confirm: dirty tree → Before =
-     `HEAD`, After = working tree; clean tree → Before = `merge-base(default-branch, HEAD)`,
-     After = `HEAD`. If the dev names a baseline in chat ("vs the release branch"), pass
-     `--before <ref>`.
-   - Check `.benchmark/corpus/` holds ≥1 `*.yaml`. **None** → tell the dev there's no corpus
-     and offer to launch the **quizgen** skill. **Several** and the dev didn't pick →
-     ask which, pass `--corpus <file>`.
+## Translate the request
 
-2. **Run with confirmation.** The binary prints a spend plan — resolved Before/After, probe
-   count, total `claude -p` runs (≈ probes × samples × 2 envs). Surface it in chat, get an
-   explicit yes, then invoke with `--yes`:
+Pull the parameters the dev actually gave; pass only those flags and let the binary default the rest. Pick the command:
 
-   ```sh
-   claude-benchmark --yes            # plus any --before/--after/--corpus/--judge/--kind the dev asked for
-   ```
+| The dev wants… | Command |
+|---|---|
+| "check my changes / is my new env better" (A/B) | `claude-benchmark` |
+| "compare to `<ref>`" ("vs main", "since I branched") | `claude-benchmark --before <ref>` |
+| test an MCP config without committing it | `claude-benchmark run --before <ref> --after <ref> --after-mcp <cfg>` |
+| "only my current env / only after" (no baseline) | `claude-benchmark assess` |
+| "only the baseline / only before" | `claude-benchmark assess --ref <ref>` |
 
-   Pass through dev requests verbatim. `--judge` is **off by default**; pass it to grade a
-   corpus that needs the **Judge** (open-ended/plan/judge_rubric probes — it adds `claude -p`
-   calls, real spend). `--samples 5` raises N. `--kind` (CSV of `rule_based,open_ended,plan`,
-   default all) narrows which probe kinds run.
+Add a flag only when the dev's words call for it:
 
-3. **Interpret the report.** Read the markdown back, quality first:
-   - **Regressions** — Before PASS → After FAIL, "what the restructure compromised." Lead here.
-   - **New passes** — FAIL → PASS, "what improved."
-   - **Numbers** — tokens, cost, tool-calls (exact); Duration (advisory under parallelism).
-     This is the main goal: efficiency up with quality held.
-   - **Disagreement** — if a rule's Before samples split, call the flip **noise**, not a real
-     regression. Pull the side-by-side traces for any rule that flipped and explain *why*.
+| The dev says… | Flag |
+|---|---|
+| "ignore the cache / rerun fresh" | `--no-cache` |
+| "only rule_based / plan / open_ended" (any combo) | `--kind <csv>` |
+| "run it N times / be more sure" | `--samples N` |
+| corpus has open_ended/plan/judge_rubric probes | `--judge` (auto-add; it adds runs) |
 
-   The tool never gates — present the picture; the dev decides.
+`claude-benchmark` (bare) auto-detects Before/After from git: uncommitted edits → Before = `HEAD`, After = the working tree; clean tree → Before = `merge-base(default, HEAD)`, After = `HEAD`. `run` does **not** auto-detect — when you use it (the MCP overlay), pass the same Before/After bare would have resolved.
 
-## Assess one config (no A/B)
+## Run it
 
-When there's no baseline to compare, `assess` scores one **Environment** against the corpus:
+1. **Corpus.** Look in `.benchmark/corpus/` for `*.yaml`. None → tell the dev and offer to launch **quizgen**; wait. One → use it. Several → ask which, pass `--corpus <file>`. Dev named one → `--corpus`.
+2. **Plan (free).** Run the command **without `--yes`** — the binary prints the resolved Before/After and `N cached · M to run`, then stops without spending. Show it, and state the guessed Before in plain words so a wrong guess gets caught.
+3. **Run.** On the dev's go-ahead, re-run with `--yes`. Skip the confirmation if the dev already said "just run it."
 
-```sh
-claude-benchmark assess --yes      # plus --ref/--corpus/--judge/--kind as asked
-```
+## Read it back
 
-- **Ref.** Defaults to the current config (dirty tree → working tree; else `HEAD`);
-  `--ref <branch|sha>` scores another. No Before/After detection — just one env.
-- **Plan.** Runs = probes × samples (one env, **not** ×2). Surface the spend plan and get an
-  explicit yes, same as the A/B path.
-- **Report.** A flat **scorecard** — each rule PASS/FAIL on its own, plus single-env
-  **Numbers** with no Δ column. **Open-ended/plan probes have no single-env grade** (a
-  Preference comparison needs two answers): they run for Numbers and are listed *not graded*.
-  To grade those, run the A/B benchmark. Skip them up front with `--kind rule_based`.
-- `--judge` only if the corpus carries judge_rubric rules.
+**A/B — give a verdict, grounded in the report's numbers:**
+- Lead with the call: which env wins, or "don't adopt." A **critical Regression vetoes any efficiency win** — never recommend an env that drops a critical guardrail, however much it saves.
+- **Quality** first: Regressions (Before PASS → After FAIL), then new passes.
+- **Efficiency**: input/output tokens, context window (base), time, tool calls — lower is better. No dollar cost.
+- A lone flipped rule on a 1-sample run may be noise; if it's critical or the dev doubts it, offer `--samples 3` or `--no-cache` to recheck.
 
-## Hard boundary
-
-**Never edit the environment** — not CLAUDE.md, `.claude/rules/*`, docs, or memory. You may
-*suggest* concrete changes in prose, but applying them ("automated restructuring driven by
-results") is out of scope (PRD) until the tool is trusted. Read-only, advisory.
+**Single env (`assess`) — no winner:** list failing rules (critical first) and the Numbers. open_ended/plan come back "not graded" — say so, and nudge: for "did my change help?", run the A/B.
 
 ## Chain
 
-- No corpus, or the dev wants new probes → **quizgen** (authors the Corpus from
-  Before; human-reviewed and frozen). A benchmark needs a corpus to exist first.
+No corpus, or the dev wants new probes → **quizgen** authors one from Before (human-reviewed, frozen). A benchmark needs a corpus first.

@@ -50,6 +50,15 @@ type RunRecord struct {
 	// FileMutations is reserved for the harness to fill from the post-run git
 	// diff; the parser always leaves it nil.
 	FileMutations []FileMutation `json:"file_mutations,omitempty"`
+
+	// CLIVersion and Concurrency are honesty stamps the Run cache applies at
+	// persist time (the parser leaves them zero): the true detected claude
+	// version this run used — so a pinned, version-mixed Sample pool stays
+	// detectable even when --cli-version reuses one pool across bumps — and the
+	// concurrency the run was measured under, since wall-clock Duration is only
+	// advisory above 1 (ADR-0016).
+	CLIVersion  string `json:"cli_version,omitempty"`
+	Concurrency int    `json:"concurrency,omitempty"`
 }
 
 type Timing struct {

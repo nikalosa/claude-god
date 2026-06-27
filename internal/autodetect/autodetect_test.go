@@ -69,6 +69,9 @@ func TestResolve_FeatureBranch(t *testing.T) {
 	if res.After != head {
 		t.Errorf("After = %s, want HEAD %s", res.After, head)
 	}
+	if res.AfterVolatile {
+		t.Error("a committed HEAD After must not be volatile (it is cacheable)")
+	}
 }
 
 // Dirty tree → Before = HEAD, After = a temp commit capturing uncommitted edits
@@ -91,6 +94,9 @@ func TestResolve_Dirty(t *testing.T) {
 	}
 	if res.After == head {
 		t.Fatal("After must differ from HEAD for a dirty tree")
+	}
+	if !res.AfterVolatile {
+		t.Error("the working-tree snapshot After must be volatile (Run cache skips it)")
 	}
 
 	tree := mustGit(t, dir, "ls-tree", "-r", "--name-only", res.After)

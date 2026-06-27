@@ -36,7 +36,7 @@ func TestRunSingleEnv(t *testing.T) {
 	probes := append(poolTestProbes(), dsl.Probe{ID: "design", Prompt: "design", Kind: dsl.OpenEnded})
 	ctx := context.Background()
 
-	aggs, err := runSingleEnv(ctx, probes, Env{Ref: "before"},1, 4, fakeRun, nil)
+	aggs, err := runSingleEnv(ctx, probes, Env{Ref: "before"}, 1, 4, fakeRun, tc(t), false, nil)
 	if err != nil {
 		t.Fatalf("runSingleEnv: %v", err)
 	}
@@ -77,11 +77,11 @@ func TestRunSingleEnv_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()
 
-	a1, err := runSingleEnv(ctx, probes, Env{Ref: "before"},3, 1, fakeRun, nil)
+	a1, err := runSingleEnv(ctx, probes, Env{Ref: "before"}, 3, 1, fakeRun, tc(t), false, nil)
 	if err != nil {
 		t.Fatalf("concurrency 1: %v", err)
 	}
-	a8, err := runSingleEnv(ctx, probes, Env{Ref: "before"},3, 8, fakeRun, nil)
+	a8, err := runSingleEnv(ctx, probes, Env{Ref: "before"}, 3, 8, fakeRun, tc(t), false, nil)
 	if err != nil {
 		t.Fatalf("concurrency 8: %v", err)
 	}

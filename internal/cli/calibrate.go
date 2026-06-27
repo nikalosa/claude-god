@@ -21,6 +21,7 @@ var (
 	flagCalSamples     int
 	flagCalConcurrency int
 	flagCalNoMem       bool
+	calCacheFlags      cacheFlags
 )
 
 var calibrateCmd = &cobra.Command{
@@ -68,12 +69,21 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 
 		ctx := context.Background()
 		env := Env{Ref: flagCalBranch, MCPConfig: flagCalMCP}
-		run, cleanup, err := sharedRun(ctx, target, memPolicy{noSnapshot: flagCalNoMem}, env, env)
+		mem := memPolicy{noSnapshot: flagCalNoMem}
+		store, err := newStore(target, mem, calCacheFlags, flagCalConcurrency)
+		if err != nil {
+			return err
+		}
+		run, cleanup, err := sharedRun(ctx, target, mem, calCacheFlags.model, calCacheFlags.effort, env, env)
 		if err != nil {
 			return err
 		}
 		defer cleanup()
-		verdicts, _, aggs, err := runBenchmark(ctx, probes, env, env, flagCalSamples, flagCalConcurrency, run, j, "")
+		// calibrate measures the noise floor, so it always draws fresh (the cache
+		// would replay frozen draws and report zero Disagreement); writes still
+		// land, growing the Sample pool. This is the role ADR-0016 folds into
+		// `assess --no-cache`.
+		verdicts, _, aggs, err := runBenchmark(ctx, probes, env, env, flagCalSamples, flagCalConcurrency, run, store, true, j, "")
 		if err != nil {
 			return err
 		}
@@ -93,5 +103,6 @@ func init() {
 	f.IntVar(&flagCalSamples, "samples", 3, "samples per environment (odd N)")
 	f.IntVar(&flagCalConcurrency, "concurrency", 8, "max runs in flight (>=1; Duration is advisory above 1)")
 	f.BoolVar(&flagCalNoMem, "no-memory-snapshot", false, "skip pinning project memory into the run")
+	addCacheFlags(f, &calCacheFlags)
 	rootCmd.AddCommand(calibrateCmd)
 }
