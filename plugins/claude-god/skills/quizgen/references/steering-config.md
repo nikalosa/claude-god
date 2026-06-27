@@ -12,8 +12,9 @@ before: benchmark/before          # the ref to generate from and freeze onto
 
 sources:                          # globs of hand-selected source text, resolved on `before`.
   - CLAUDE.md                     #   The ONLY grounding for rule-based probes — each doc is
-  - .claude/rules/*.md            #   fed to its own generation subagent (docs only, no code).
-  - docs/conventions/*.md         #   Curate them; the Generator never scrapes blind.
+  - "**/CLAUDE.md"                #   fed to its own generation subagent (docs only, no code).
+  - .claude/rules/**/*.md         #   Defaults cover root + nested CLAUDE.md and rules;
+  - docs/conventions/*.md         #   curate them, the Generator never scrapes blind.
 
 pasted: |                         # optional: a rule not stated in any file. Treated as a
   Amounts cross the gRPC          #   source doc by the rule-based stream.
