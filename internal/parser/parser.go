@@ -21,42 +21,16 @@ type RunRecord struct {
 	TotalCost  float64               `json:"total_cost_usd"`
 	ModelUsage map[string]ModelUsage `json:"model_usage,omitempty"`
 
-	// PeakContextTokens is the high-water mark of resident context: the max over
-	// main-session assistant turns of (input + cache_creation + cache_read). It is
-	// bounded by the model's window and matches the Claude Code status-line figure,
-	// unlike the cumulative TotalInputTokens which sums every turn's input. Peak
-	// grows with exploration, so it is run-to-run noisy; prefer BaseContextTokens
-	// for the config signal.
 	PeakContextTokens int `json:"peak_context_tokens"`
 
-	// BaseContextTokens is the resident context at the first main-session assistant
-	// turn (input + cache_creation + cache_read), before any tool exploration. That
-	// prompt is system + tools + CLAUDE.md + Claude rules + memory + the probe — the
-	// pure cost of the Environment under test. It is deterministic (zero run-to-run
-	// variance), so it is the clean A/B config metric where peak is exploration-noisy.
 	BaseContextTokens int `json:"base_context_tokens"`
 
-	// ToolCalls is the ordered list of top-level tool invocations. Sub-agent
-	// internal calls are excluded (see the assistant case in Parse); empty in
-	// flat no-tool runs.
 	ToolCalls []ToolCall `json:"tool_calls"`
 
-	// MCPServers is the init-event roster of MCP servers Claude actually loaded,
-	// with status. Under --strict-mcp-config these are exactly the servers the
-	// Environment declared, so a "disabled"/"failed" entry means a declared
-	// server did not load (the harness rejects such a run rather than grade it).
 	MCPServers []MCPServer `json:"mcp_servers,omitempty"`
 
-	// FileMutations is reserved for the harness to fill from the post-run git
-	// diff; the parser always leaves it nil.
 	FileMutations []FileMutation `json:"file_mutations,omitempty"`
 
-	// CLIVersion and Concurrency are honesty stamps the Run cache applies at
-	// persist time (the parser leaves them zero): the true detected claude
-	// version this run used — so a pinned, version-mixed Sample pool stays
-	// detectable even when --cli-version reuses one pool across bumps — and the
-	// concurrency the run was measured under, since wall-clock Duration is only
-	// advisory above 1 (ADR-0016).
 	CLIVersion  string `json:"cli_version,omitempty"`
 	Concurrency int    `json:"concurrency,omitempty"`
 }
@@ -96,11 +70,6 @@ type FileMutation struct {
 	Op   string `json:"op"`
 }
 
-// TotalInputTokens returns session-wide input tokens (uncached + cache creation +
-// cache read) summed across all models. The stream's result.usage reports only the
-// final turn, so for multi-turn or sub-agent runs it badly undercounts (observed
-// 10-13x); modelUsage is the true aggregate and the basis for total_cost_usd. Falls
-// back to the final-turn Usage when modelUsage is absent.
 func (r *RunRecord) TotalInputTokens() int {
 	if len(r.ModelUsage) == 0 {
 		return r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens
@@ -112,19 +81,14 @@ func (r *RunRecord) TotalInputTokens() int {
 	return total
 }
 
-// ContextWindowTokens is the peak resident context window (see PeakContextTokens).
 func (r *RunRecord) ContextWindowTokens() int {
 	return r.PeakContextTokens
 }
 
-// BaseContextWindowTokens is the turn-1 (config-only) resident context window —
-// the deterministic A/B metric (see BaseContextTokens).
 func (r *RunRecord) BaseContextWindowTokens() int {
 	return r.BaseContextTokens
 }
 
-// TotalOutputTokens returns session-wide output tokens summed across all models,
-// with the same final-turn fallback as TotalInputTokens.
 func (r *RunRecord) TotalOutputTokens() int {
 	if len(r.ModelUsage) == 0 {
 		return r.Usage.OutputTokens
@@ -177,10 +141,7 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			rec.MCPServers = sys.MCPServers
 
 		case "assistant":
-			// Count top-level tool calls only: parent_tool_use_id is null for the
-			// main session and non-null for a spawned Agent sub-session's internal
-			// calls, which we skip. The harness disables subagents
-			// (--disallowedTools "Agent"), so in practice it is always null.
+
 			var am struct {
 				ParentToolUseID *string `json:"parent_tool_use_id"`
 				Message         struct {
@@ -201,9 +162,7 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			if am.ParentToolUseID != nil {
 				continue
 			}
-			// message.usage input side is the real prompt size for that turn (only
-			// output_tokens is a mid-stream snapshot); the first turn is the base
-			// (config-only) context and the max over turns is the peak resident window.
+
 			resident := am.Message.Usage.InputTokens + am.Message.Usage.CacheCreationInputTokens + am.Message.Usage.CacheReadInputTokens
 			if rec.BaseContextTokens == 0 {
 				rec.BaseContextTokens = resident
@@ -253,7 +212,7 @@ func Parse(r io.Reader) (*RunRecord, error) {
 			gotResult = true
 
 		default:
-			// Tolerate unknown transient types (e.g., rate_limit_event).
+
 		}
 	}
 	if err := sc.Err(); err != nil {

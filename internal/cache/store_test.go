@@ -26,8 +26,6 @@ func rec(text string) *parser.RunRecord {
 	return &parser.RunRecord{FinalText: text, TotalCost: 0.5}
 }
 
-// TestStore_ReadMissing: an unseen fingerprint is an empty pool, not an error —
-// the lookup path treats it as "all misses".
 func TestStore_ReadMissing(t *testing.T) {
 	s := testStore(t)
 	pool, err := s.Read("deadbeef")
@@ -39,9 +37,6 @@ func TestStore_ReadMissing(t *testing.T) {
 	}
 }
 
-// TestStore_AppendReadRoundTrip: appended records come back in order with their
-// payload intact and the honesty stamps (CLI version + measured concurrency)
-// applied at persist time.
 func TestStore_AppendReadRoundTrip(t *testing.T) {
 	s := testStore(t)
 	key, err := s.Key("before", "", "prompt")
@@ -73,9 +68,6 @@ func TestStore_AppendReadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestStore_ReadNumericOrder: the pool is ordered by index, and the order is
-// numeric not lexical — pool[10] must follow pool[9], not pool[1]. pool[0]
-// stability across re-reads is load-bearing for the Preference comparison.
 func TestStore_ReadNumericOrder(t *testing.T) {
 	s := testStore(t)
 	key, _ := s.Key("before", "", "p")
@@ -95,9 +87,6 @@ func TestStore_ReadNumericOrder(t *testing.T) {
 	}
 }
 
-// TestStore_ConcurrentAppend: distinct sample indices map to distinct files, so
-// concurrent writers to one pool never overwrite each other (ADR-0016: no
-// hot-path lock, only index reservation). Run with -race.
 func TestStore_ConcurrentAppend(t *testing.T) {
 	s := testStore(t)
 	key, _ := s.Key("before", "", "p")
@@ -131,8 +120,6 @@ func TestStore_ConcurrentAppend(t *testing.T) {
 	}
 }
 
-// TestStore_Key: the key is stable for equal inputs and distinct for any change
-// in ref, MCP, or prompt (the per-(env,probe) varying inputs the store resolves).
 func TestStore_Key(t *testing.T) {
 	s := testStore(t)
 	k, _ := s.Key("before", "", "p")
@@ -151,9 +138,6 @@ func TestStore_Key(t *testing.T) {
 	}
 }
 
-// TestStore_KeyReflectsEnvConstants: two stores differing only in a global key
-// input (model/effort/CLI-version key/memory tag) must produce different keys
-// for the same (ref, prompt) — these are environment-level, not probe-level.
 func TestStore_KeyReflectsEnvConstants(t *testing.T) {
 	base := testStore(t)
 	k, _ := base.Key("before", "", "p")

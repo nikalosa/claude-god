@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// nonTTY returns a real file handle (not a char device) so isTTY reads false.
 func nonTTY(t *testing.T) *os.File {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "stdin")

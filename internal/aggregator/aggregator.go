@@ -48,14 +48,6 @@ type AggregatedOutcome struct {
 	After   AggregatedEnv
 }
 
-// Aggregate collapses an EnvOutcome's N runs into one AggregatedEnv: median
-// over cost/tokens/duration, majority-vote (>=ceil(N/2)) per rule.
-//
-// AdaptiveExpansionSeam: PRD prescribes expanding to N=5 when a critical-severity
-// rule shows post-N=3 disagreement (PassCount ∈ {1,2}). This is explicitly
-// deferred from v1 — the caller currently never re-samples. To enable, the run
-// loop should detect a critical Disagreement here and dispatch two additional
-// harness runs, appending to EnvOutcome.Runs before re-calling Aggregate.
 func Aggregate(po ProbeOutcome) AggregatedOutcome {
 	return AggregatedOutcome{
 		ProbeID: po.ProbeID,
@@ -229,8 +221,7 @@ type Deltas struct {
 	DurationMsAfter  int
 	ToolCallsBefore  int
 	ToolCallsAfter   int
-	// Context window is a per-run snapshot (turn-1 base / peak high-water), not a
-	// cumulative total, so these are the MEAN across probes — not a sum.
+
 	BaseCtxBefore int
 	BaseCtxAfter  int
 	PeakCtxBefore int
@@ -264,11 +255,6 @@ func ComputeDeltas(aggs []AggregatedOutcome) Deltas {
 	return d
 }
 
-// Flaky returns the verdicts that are NOT cleanly stable on an identical
-// Environment (a Before-vs-Before calibration): a rule that flipped
-// (Regression/NewPass) despite no real change, or one whose N samples disagreed
-// in either env. This is the noise floor a real Before-vs-After comparison
-// stands on.
 func Flaky(vs []Verdict) []Verdict {
 	var out []Verdict
 	for _, v := range vs {

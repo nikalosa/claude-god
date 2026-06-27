@@ -35,8 +35,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// initRepo creates a committed target Environment: CLAUDE.md, a Claude rule, and
-// a doc.
 func initRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -107,7 +105,7 @@ func TestCreate_WithMemory(t *testing.T) {
 func TestCreate_NoMemory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := initRepo(t)
-	seedMemory(t, repo) // present, but opted out
+	seedMemory(t, repo)
 
 	branch, err := Create(ctx, Opts{TargetRepo: repo, Name: "after", IncludeMemory: false})
 	if err != nil {
@@ -125,7 +123,7 @@ func TestCreate_NoMemory(t *testing.T) {
 }
 
 func TestCreate_MemoryAbsentFallsBack(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no memory seeded
+	t.Setenv("HOME", t.TempDir())
 	repo := initRepo(t)
 
 	branch, err := Create(ctx, Opts{TargetRepo: repo, Name: "before", IncludeMemory: true})
@@ -150,7 +148,6 @@ func TestCreate_Overwrite(t *testing.T) {
 	}
 	first := tgit(t, repo, "rev-parse", "benchmark/before")
 
-	// Change the environment and re-snapshot the same name.
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), "# rules\n- be concise\n- new rule\n")
 	tgit(t, repo, "commit", "-am", "edit environment")
 

@@ -39,25 +39,12 @@ var (
 	runCacheFlags     cacheFlags
 )
 
-// Env is one side of a comparison: the git ref under test plus the MCP config it
-// carries. It makes the CONTEXT.md "Environment" concrete — the ref is the base
-// layer (code + in-tree CLAUDE.md/rules/docs), MCPConfig an explicit layer on
-// top — so Before and After can share a ref and differ only in MCP.
-//
-// Volatile marks the uncommitted working-tree snapshot (a synthetic, throwaway
-// commit). The Run cache is baseline-only: a volatile side is never read or
-// written, because it changes every iteration so a hit is impossible and a write
-// would only mint a junk fingerprint dir per run (ADR-0016). Committed refs cache
-// normally.
 type Env struct {
 	Ref       string
 	MCPConfig string
 	Volatile  bool
 }
 
-// runFunc executes one probe sample in an Environment and returns its record.
-// The pool depends on this seam, not on harness.Run, so it is unit-testable with
-// a fake and never shells out to claude in tests.
 type runFunc func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error)
 
 var runCmd = &cobra.Command{
@@ -121,8 +108,6 @@ var runCmd = &cobra.Command{
 	},
 }
 
-// validateSamples requires an odd N: the aggregator's majority vote equals
-// median-of-scores thresholding (the judge-rubric contract) only for odd N.
 func validateSamples(n int) error {
 	if n < 1 {
 		return fmt.Errorf("--samples must be >= 1")
@@ -133,9 +118,6 @@ func validateSamples(n int) error {
 	return nil
 }
 
-// judgeFor builds a Judge iff the corpus needs one (judge-backed rules or
-// comparative probes — open-ended and plan). --judge gates it: the Judge adds
-// claude -p calls, so a corpus that needs one errors until --judge is passed.
 func judgeFor(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	if !dsl.NeedsJudge(probes) {
 		return nil, nil
@@ -146,11 +128,6 @@ func judgeFor(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
-// taskPrompt wraps a plan probe so the run is asked for a step-by-step plan
-// (Mode = Plan). Runs are already read-only (ADR-0006), so this only makes the
-// plan-not-execute intent explicit; other kinds pass through unchanged. The
-// wrap is applied to the run prompt only — the judge still compares against the
-// probe's original question.
 func taskPrompt(probe dsl.Probe) string {
 	if probe.Kind == dsl.Plan {
 		return "Produce a step-by-step plan to accomplish the following. Do not execute it.\n\n" + probe.Prompt
@@ -158,17 +135,6 @@ func taskPrompt(probe dsl.Probe) string {
 	return probe.Prompt
 }
 
-// runBenchmark serves every probe's Sample pool on the before and after sides
-// from the Run cache, running only the misses in a bounded parallel pool, then
-// grades the probes in a second bounded pool, returning the verdicts, open-ended
-// preferences, and Numbers. Each completed run is written through to the cache
-// immediately (crash-resume), and the pools are re-read from disk before grading
-// so the graded order is exactly the cached order — making two runs of identical
-// inputs produce identical grades, pool[0] stable for the Preference comparison
-// (ADR-0016). --no-cache bypasses the read (fresh draws) but still writes.
-// Concurrency is a scheduling detail: results are keyed by probe, so it never
-// changes the output, only wall-clock Duration (ADR-0005). run is injected so
-// the pool is testable without claude.
 func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, samples, concurrency int, run runFunc, store *cache.Store, noCache bool, j judge.Judge, dumpDir string) ([]aggregator.Verdict, []runner.PreferenceResult, []aggregator.AggregatedOutcome, error) {
 	beforeRecs := make([][]*parser.RunRecord, len(probes))
 	afterRecs := make([][]*parser.RunRecord, len(probes))
@@ -187,12 +153,6 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, sa
 		return nil, nil, nil, err
 	}
 
-	// Grade the probes in the same bounded pool: only the judge calls (Prefer,
-	// Score) shell claude -p, so concurrency overlaps that latency; aggregation
-	// is pure CPU and rides along inside each task. Results are written by probe
-	// index and preferences compacted in probe order after the pool drains, so
-	// completion order never changes the report (same property as the run pool,
-	// ADR-0005). First grade error cancels in-flight judge calls.
 	aggs := make([]aggregator.AggregatedOutcome, len(probes))
 	prefSlots := make([]*runner.PreferenceResult, len(probes))
 	gg, ggctx := errgroup.WithContext(ctx)
@@ -231,17 +191,12 @@ func runBenchmark(ctx context.Context, probes []dsl.Probe, before, after Env, sa
 	return aggregator.Compare(aggs), prefs, aggs, nil
 }
 
-// side is one comparison arm fed to planPools: the Environment, the per-probe
-// record slices to fill, and the label half.
 type side struct {
 	env  Env
 	recs [][]*parser.RunRecord
 	name string
 }
 
-// pool is one (probe, side) Sample pool: its cache key, how many fresh runs
-// (misses) it needs, the fresh records those runs produced (slot-indexed, so
-// concurrent writers need no lock), and where its graded records land.
 type pool struct {
 	env     Env
 	prompt  string
@@ -253,12 +208,6 @@ type pool struct {
 	compare bool
 }
 
-// planPools resolves each (probe, side) to its cache key, counts how many of the
-// requested samples are already served from the cache, and sizes the misses to
-// run. A volatile side (the uncommitted working tree) skips the cache entirely —
-// no key, no read — so all its samples are misses (ADR-0016: baseline-only cache).
-// Comparative pools sort first (LPT): open-ended and plan runs take ~5x longer, so
-// dispatching their misses at t=0 flattens the tail.
 func planPools(store *cache.Store, probes []dsl.Probe, samples int, noCache bool, sides []side) ([]pool, error) {
 	var pools []pool
 	for pi := range probes {
@@ -297,17 +246,11 @@ func planPools(store *cache.Store, probes []dsl.Probe, samples int, noCache bool
 	return pools, nil
 }
 
-// missTask is one fresh run: pool p, writing its result into p.fresh[slot].
 type missTask struct {
 	p    *pool
 	slot int
 }
 
-// runMisses runs every pool's missing samples in one bounded pool and writes each
-// completed run through to the cache immediately (crash-resume + the time win).
-// A fully-cached invocation has no misses and never enters claude (so a lazy
-// worktree is never prepared). Each result also lands in p.fresh[slot] so the
-// --no-cache path can grade exactly the draws it just made.
 func runMisses(ctx context.Context, pools []pool, concurrency int, run runFunc, store *cache.Store, guardEnvs ...Env) error {
 	var tasks []missTask
 	for i := range pools {
@@ -351,13 +294,6 @@ func runMisses(ctx context.Context, pools []pool, concurrency int, run runFunc, 
 	return g.Wait()
 }
 
-// fillFromCache picks the N records each pool grades. A cached side re-reads the
-// pool from disk and takes the deterministic prefix, so the graded order is
-// exactly the persisted order — a re-run of identical inputs grades the identical
-// pool, pool[0] stable for the Preference comparison. A volatile side (uncommitted
-// working tree, never persisted) and --no-cache both grade the fresh draws just
-// made (p.fresh); the latter also keeps the two arms of a Before-vs-Before
-// calibration independent even though they share one Fingerprint.
 func fillFromCache(store *cache.Store, pools []pool, samples int, noCache bool) error {
 	for i := range pools {
 		if noCache || pools[i].env.Volatile {
@@ -376,11 +312,6 @@ func fillFromCache(store *cache.Store, pools []pool, samples int, noCache bool) 
 	return nil
 }
 
-// runWithRetry retries a sample on transient failure (an occasional claude -p
-// flake or API error, or a declared MCP server that lost the startup race —
-// harness.checkMCPHealth surfaces that as an error): one dying run must not abort a
-// whole 96-run benchmark. Each attempt is a fresh worktree + claude invocation.
-// Stops early if the pool context is cancelled.
 func runWithRetry(ctx context.Context, run runFunc, env Env, prompt, label string, gate *sync.Mutex) (*parser.RunRecord, error) {
 	const maxAttempts = 3
 	var err error
@@ -399,10 +330,6 @@ func runWithRetry(ctx context.Context, run runFunc, env Env, prompt, label strin
 	return nil, err
 }
 
-// runAttempt serializes re-rolls (attempt > 1) through gate when set. A declared
-// MCP server only loses the startup race under CPU contention, so the first pass
-// stays parallel while retries run one-at-a-time and reliably win the handshake.
-// gate is nil when no Environment declares MCP, leaving every attempt unsynchronized.
 func runAttempt(ctx context.Context, run runFunc, env Env, prompt string, attempt int, gate *sync.Mutex) (*parser.RunRecord, error) {
 	if attempt > 1 && gate != nil {
 		gate.Lock()
@@ -411,24 +338,8 @@ func runAttempt(ctx context.Context, run runFunc, env Env, prompt string, attemp
 	return run(ctx, env, prompt)
 }
 
-// mcpRunConcurrencyCap bounds the run pool when an Environment declares MCP. The
-// headless client can start its turn before a stdio MCP server finishes its
-// handshake; under enough CPU/IO contention the handshake loses and the turn runs
-// with no MCP tools. It was 3 under the per-run-worktree regime, where every run
-// also cold-started a heavy `git reset --hard` in the same window (measured then:
-// 2 wins, 6 loses). Once ADR-0015 hoisted checkout to once-per-ref the startup
-// window went quiet; re-measurement ran 12-way concurrent clean (26 runs, 0 misses),
-// so the cap is raised to 8 as a backstop for pathological cases (huge index / slow
-// disk / busy box). A miss is still detected (harness.checkMCPHealth) and serialized
-// through the retry gate — correctness over speed, Duration advisory above 1.
 const mcpRunConcurrencyCap = 8
 
-// mcpGuard derives the run-pool limit and retry gate for a set of Environments.
-// When any declares MCP it caps first-pass concurrency and returns a gate so
-// retries serialize (see runAttempt); otherwise the pool runs at the requested
-// concurrency with no gate. Note: only an explicit MCP config (--before-mcp /
-// --after-mcp / --mcp) is visible here — a ref's committed .mcp.json is resolved
-// later in the harness, so the cap does not engage for that case (ADR-0014).
 func mcpGuard(concurrency int, envs ...Env) (limit int, gate *sync.Mutex) {
 	limit = concurrency
 	for _, e := range envs {
@@ -445,24 +356,11 @@ func mcpGuard(concurrency int, envs ...Env) (limit int, gate *sync.Mutex) {
 	return limit, nil
 }
 
-// memPolicy is how a command injects project memory into each prepared
-// worktree: an explicit live source (assess/bare), or the ref's committed
-// snapshot unless --no-memory-snapshot is set (run).
 type memPolicy struct {
 	noSnapshot bool
 	source     string
 }
 
-// sharedRun returns a runFunc that prepares one worktree per distinct ref
-// lazily — on the first miss that needs that ref — and dispatches each Env to its
-// ref's shared worktree, plus a cleanup that tears down whatever was prepared
-// (ADR-0015). Lazy preparation is what makes a fully-cached ref do zero checkouts
-// (ADR-0016 §9): the cache lookup runs first, and if every sample is served the
-// runFunc is never called, so Prepare never fires. Memory is injected once per
-// ref and removed in cleanup; the caller defers cleanup so it fires only after
-// the run pool drains — a per-run teardown would wipe the slug sibling runs are
-// still writing. Same-ref Before/After collapse to one worktree and differ only
-// in the per-run MCP config; model/effort are the controlled run variables.
 func sharedRun(ctx context.Context, target string, mem memPolicy, model, effort string, envs ...Env) (runFunc, func(), error) {
 	type lazyTree struct {
 		once sync.Once
@@ -511,8 +409,6 @@ func sharedRun(ctx context.Context, target string, mem memPolicy, model, effort 
 	return run, cleanup, nil
 }
 
-// distinctRefs returns the unique refs across envs, first-seen order, so a
-// same-ref Before/After yields a single worktree.
 func distinctRefs(envs []Env) []string {
 	seen := map[string]bool{}
 	var refs []string

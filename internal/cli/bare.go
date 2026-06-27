@@ -31,10 +31,6 @@ var (
 	bareCacheFlags      cacheFlags
 )
 
-// defaultRunE is the bare `claude-benchmark` default action (ADR-0008): it
-// auto-discovers the corpus, auto-detects Before/After from git, prints a spend
-// plan, confirms, then runs the whole A/B benchmark and prints the report. Every
-// flag is an optional override of an auto-detected default.
 func defaultRunE(cmd *cobra.Command, _ []string) error {
 	kinds, err := parseKinds(flagEvalKind)
 	if err != nil {
@@ -119,9 +115,6 @@ func defaultRunE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// discoverCorpus finds the corpus under <target>/.benchmark/corpus/: one file is
-// used, several prompt a choice on a TTY (else error listing them), none points
-// the dev at quizgen. override short-circuits the search.
 func discoverCorpus(target, override string, in *os.File) (string, error) {
 	if override != "" {
 		return override, nil
@@ -170,8 +163,6 @@ func printPlan(w io.Writer, res autodetect.Resolution, corpus string, probes, sa
 		cached, toRun, probes*samples*2, probes, samples)
 }
 
-// confirm gates spend: --yes proceeds; a TTY prompts; a non-TTY without --yes
-// refuses rather than spend silently.
 func confirm(yes bool, in *os.File) (bool, error) {
 	if yes {
 		return true, nil

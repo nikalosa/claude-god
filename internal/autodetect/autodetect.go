@@ -1,9 +1,3 @@
-// Package autodetect resolves the Before and After committishes for the bare
-// A/B benchmark from a target repo's git state (ADR-0008): a dirty tree compares
-// HEAD against the working tree (temp-committed so uncommitted and new untracked
-// env files count); a clean tree compares the fork point against HEAD. Either
-// side is overridable. No claude, no run worktrees — pure git, so it is
-// unit-testable against fixture repos.
 package autodetect
 
 import (
@@ -16,10 +10,6 @@ import (
 	"strings"
 )
 
-// Resolution is the committish pair the bare benchmark runs, plus human labels
-// for the spend plan. AfterVolatile is set when After is the synthetic
-// working-tree snapshot rather than a committed ref, so the Run cache can skip it
-// (it changes every iteration — ADR-0016 baseline-only cache).
 type Resolution struct {
 	Before        string
 	After         string
@@ -29,8 +19,6 @@ type Resolution struct {
 	AfterVolatile bool
 }
 
-// Resolve picks Before and After for repo per ADR-0008. beforeOverride and
-// afterOverride replace either side independently when non-empty.
 func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (Resolution, error) {
 	abs, err := filepath.Abs(repo)
 	if err != nil {
@@ -102,12 +90,6 @@ func Resolve(ctx context.Context, repo, beforeOverride, afterOverride string) (R
 	return res, nil
 }
 
-// ResolveOne resolves a single Environment ref for the single-env assess (no
-// comparison): the override when set, else the working tree — temp-committed when
-// dirty so uncommitted and untracked env edits count, HEAD when clean. It mirrors
-// the After half of Resolve without its A/B "nothing to compare" error, so a
-// clean default branch still assesses fine. volatile is true only for the
-// synthetic working-tree snapshot, so the Run cache skips it (ADR-0016).
 func ResolveOne(ctx context.Context, repo, override string) (ref, desc string, volatile bool, err error) {
 	abs, err := filepath.Abs(repo)
 	if err != nil {
@@ -141,11 +123,6 @@ func ResolveOne(ctx context.Context, repo, override string) (ref, desc string, v
 	return sha, label("HEAD", sha), false, nil
 }
 
-// tempCommitWorkingTree snapshots the working tree (tracked edits + untracked
-// files, minus .gitignore) as a commit parented on HEAD, using a throwaway
-// index so the target's real index, HEAD, and working tree are untouched. The
-// commit is unreferenced — git GCs it later; the run worktree checks it out by
-// SHA in the meantime.
 func tempCommitWorkingTree(ctx context.Context, repo string) (string, error) {
 	tmp, err := os.MkdirTemp("", "claude-benchmark-index-*")
 	if err != nil {
@@ -167,8 +144,6 @@ func tempCommitWorkingTree(ctx context.Context, repo string) (string, error) {
 	return git(ctx, repo, env, "commit-tree", tree, "-p", "HEAD", "-m", "claude-benchmark: working tree under test")
 }
 
-// defaultBranch is origin/HEAD when set, else a local main/master, else an
-// error asking for --before.
 func defaultBranch(ctx context.Context, repo string) (string, error) {
 	if ref, err := git(ctx, repo, nil, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil && ref != "" {
 		return strings.TrimPrefix(ref, "refs/remotes/"), nil

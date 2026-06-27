@@ -10,12 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// bashGuardCmd is the PreToolUse hook target wired by the harness. Claude Code
-// pipes the tool call as JSON on stdin; the hook exits 2 to block the call (its
-// stderr becomes the reason shown to the model) or 0 to allow it. Anything that
-// is not a vettable Bash command — a parse failure, a missing command, an
-// unexpected tool — fails closed (blocked). It is hidden because it is harness
-// plumbing, not a user-facing command.
 var bashGuardCmd = &cobra.Command{
 	Use:    "__bash-read-guard",
 	Hidden: true,

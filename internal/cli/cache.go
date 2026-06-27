@@ -22,9 +22,6 @@ const (
 	defaultEffort = "medium"
 )
 
-// cacheFlags are the Run-cache knobs every command shares: the controlled model
-// and effort that feed both the run and the Fingerprint, the CLI-version key
-// override, and the read bypass.
 type cacheFlags struct {
 	model      string
 	effort     string
@@ -39,11 +36,6 @@ func addCacheFlags(f *pflag.FlagSet, c *cacheFlags) {
 	f.BoolVar(&c.noCache, "no-cache", false, "bypass the Run cache read (still writes) — forces fresh draws to re-measure noise")
 }
 
-// newStore builds the Run cache for one invocation: rooted in the target's
-// gitignored .benchmark/cache, carrying the controlled model/effort, the CLI
-// version (override for the key, always the detected version for the record
-// stamp), the memory-policy tag, and the concurrency each fresh run is measured
-// under.
 func newStore(target string, mem memPolicy, cf cacheFlags, concurrency int) (*cache.Store, error) {
 	detected, derr := detectCLIVersion()
 	key := cf.cliVersion
@@ -73,8 +65,6 @@ func newStore(target string, mem memPolicy, cf cacheFlags, concurrency int) (*ca
 	}), nil
 }
 
-// detectCLIVersion reads the leading version token from `claude --version`
-// (e.g. "2.1.195 (Claude Code)" -> "2.1.195").
 func detectCLIVersion() (string, error) {
 	out, err := exec.Command("claude", "--version").Output()
 	if err != nil {
@@ -87,9 +77,6 @@ func detectCLIVersion() (string, error) {
 	return fields[0], nil
 }
 
-// memTag is the memory-policy component of the Fingerprint. A live source is the
-// only memory not already captured by the ref's SHA (snapshot lives in the tree;
-// none injects nothing), so it is hashed; snapshot/none are constant tags.
 func memTag(mem memPolicy) (string, error) {
 	if mem.source != "" {
 		h, err := hashDir(mem.source)
@@ -104,8 +91,6 @@ func memTag(mem memPolicy) (string, error) {
 	return "snapshot", nil
 }
 
-// hashDir is a deterministic content hash of a directory: every file's relative
-// path and bytes folded in sorted order, so a memory edit changes the tag.
 func hashDir(dir string) (string, error) {
 	var paths []string
 	err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
@@ -139,10 +124,6 @@ func hashDir(dir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// cachePlan counts, across every (env, probe) pool, how many samples are served
-// from the cache and how many must run — the post-lookup spend plan (ADR-0016).
-// --no-cache serves nothing, and a volatile env (the uncommitted working tree) is
-// never cached, so every one of its samples is a fresh draw.
 func cachePlan(store *cache.Store, probes []dsl.Probe, samples int, noCache bool, envs ...Env) (cached, toRun int, err error) {
 	for _, env := range envs {
 		for _, p := range probes {

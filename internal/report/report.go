@@ -10,10 +10,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/runner"
 )
 
-// RenderMarkdown renders the decision-support report efficiency-first: the
-// Numbers (the thing a restructure is trying to improve) lead, then one folded
-// rule matrix where regression/new-pass is just a Status cell, then the
-// open-ended preference read. Never gates — the dev reads it (ADR-0007).
 func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResult, aggs []aggregator.AggregatedOutcome, concurrency int) string {
 	var regressions, newPasses int
 	for _, v := range verdicts {
@@ -40,9 +36,6 @@ func RenderMarkdown(verdicts []aggregator.Verdict, prefs []runner.PreferenceResu
 	return b.String()
 }
 
-// renderRules renders the single folded matrix of every graded rule, sorted by
-// probe then rule. The Status cell carries the regression/new-pass observation;
-// the dev reads the Before→After columns by eye. No gate, no headline section.
 func renderRules(b *strings.Builder, verdicts []aggregator.Verdict) {
 	fmt.Fprintln(b, "## Rules")
 	fmt.Fprintln(b)
@@ -82,9 +75,6 @@ func statusLabel(s aggregator.Status) string {
 	}
 }
 
-// RenderCalibration renders a Before-vs-Before noise-floor report: the rules
-// that came out flaky on an identical Environment (the false-positive rate a
-// real comparison stands on), plus the Numbers spread. Never gates.
 func RenderCalibration(verdicts []aggregator.Verdict, aggs []aggregator.AggregatedOutcome, concurrency int) string {
 	flaky := aggregator.Flaky(verdicts)
 	sort.Slice(flaky, func(i, j int) bool {
@@ -117,11 +107,6 @@ func RenderCalibration(verdicts []aggregator.Verdict, aggs []aggregator.Aggregat
 	return b.String()
 }
 
-// RenderAssessment renders the single-environment scorecard (ADR-0012): each
-// rule PASS/FAIL on its own (no Before/After, no Status flip), then single-env
-// Numbers with no Δ column. Comparative probes (open_ended/plan) carry no rules,
-// so they have no single-env grade — they are run for Numbers and listed as not
-// graded. Never gates.
 func RenderAssessment(aggs []aggregator.AggregatedOutcome, envDesc string, concurrency int) string {
 	var passed, failed, comparative int
 	for _, a := range aggs {
@@ -154,8 +139,6 @@ func RenderAssessment(aggs []aggregator.AggregatedOutcome, envDesc string, concu
 	return b.String()
 }
 
-// renderScorecard renders the flat per-rule PASS/FAIL table for one Environment,
-// sorted by probe then rule. No flip Status, no Δ — each rule stands on its own.
 func renderScorecard(b *strings.Builder, aggs []aggregator.AggregatedOutcome) {
 	type row struct {
 		probe string
@@ -189,9 +172,6 @@ func renderScorecard(b *strings.Builder, aggs []aggregator.AggregatedOutcome) {
 	fmt.Fprintln(b)
 }
 
-// renderSingleNumbers renders the one Environment's Numbers as a Value column
-// (no Δ) — it reads the Before fields of ComputeDeltas, since assess populates
-// only the Before side.
 func renderSingleNumbers(b *strings.Builder, d aggregator.Deltas, concurrency int) {
 	durLabel := "Duration (ms)"
 	if concurrency > 1 {
@@ -216,8 +196,6 @@ func renderSingleNumbers(b *strings.Builder, d aggregator.Deltas, concurrency in
 	fmt.Fprintln(b)
 }
 
-// renderSinglePerProbe renders the per-probe Numbers for one Environment — one
-// row per probe, single values, no Δ.
 func renderSinglePerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcome, concurrency int) {
 	if len(aggs) == 0 {
 		return
@@ -243,8 +221,6 @@ func renderSinglePerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcom
 	fmt.Fprintln(b)
 }
 
-// renderNotGraded lists the comparative probes (open_ended/plan) that have no
-// single-env grade — they need an A/B comparison. Omitted when there are none.
 func renderNotGraded(b *strings.Builder, aggs []aggregator.AggregatedOutcome) {
 	var ids []string
 	for _, a := range aggs {
@@ -297,10 +273,6 @@ func renderDeltas(b *strings.Builder, title string, d aggregator.Deltas, concurr
 	fmt.Fprintln(b)
 }
 
-// renderPerProbe renders the per-probe Numbers breakdown — one row per probe
-// (before → after, with the percent change) plus a TOTAL row — so the dev can
-// see which probe drives the cost and time, not just the summed delta. Duration
-// is flagged with ⚠ under concurrency, matching the totals table.
 func renderPerProbe(b *strings.Builder, aggs []aggregator.AggregatedOutcome, concurrency int) {
 	if len(aggs) == 0 {
 		return
@@ -353,9 +325,6 @@ func pct(delta, before float64) string {
 	return fmt.Sprintf("%+.1f%%", delta/before*100)
 }
 
-// renderPreferences renders the open-ended "what reads better" section. It is
-// strictly report-only: no PASS/FAIL, no severity, and these results never
-// become Verdicts, so they cannot affect the exit code.
 func renderPreferences(b *strings.Builder, prefs []runner.PreferenceResult) {
 	if len(prefs) == 0 {
 		return

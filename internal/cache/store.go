@@ -16,23 +16,19 @@ import (
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
-// Store is the content-addressed Run cache: one directory per Fingerprint under
-// Root, one zero-padded NNNN.json per Run in a directory. Distinct sample indices
-// map to distinct files, so concurrent writers to one pool never touch the same
-// file; a brief per-fingerprint lock is held only to reserve the next index.
 type Store struct {
 	root        string
 	model       string
 	effort      string
-	cliKey      string // CLI version token folded into the Fingerprint
-	cliStamp    string // true detected CLI version stamped on each record
+	cliKey      string
+	cliStamp    string
 	memTag      string
 	concurrency int
 	resolve     func(ref, mcpConfig string) (sha, mcp string, err error)
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
-	shas  map[string]resolved // memoized (ref+mcp) -> resolution
+	shas  map[string]resolved
 }
 
 type resolved struct {
@@ -40,9 +36,6 @@ type resolved struct {
 	err      error
 }
 
-// Opts configures a Store. Resolve is injectable so the fingerprint plumbing
-// (git rev-parse for the SHA, the effective MCP bytes) is faked in tests; when
-// nil it defaults to the real git-backed resolver rooted at Target.
 type Opts struct {
 	Root            string
 	Model           string
@@ -74,9 +67,6 @@ func New(opts Opts) *Store {
 	}
 }
 
-// Key resolves a (ref, mcpConfig, runPrompt) triple to its Fingerprint. The ref
-// is resolved to a SHA and the MCP config to its effective bytes (memoized per
-// ref+config), then folded with the store's environment-level constants.
 func (s *Store) Key(ref, mcpConfig, runPrompt string) (string, error) {
 	sha, mcp, err := s.resolveCached(ref, mcpConfig)
 	if err != nil {
@@ -108,8 +98,6 @@ func (s *Store) resolveCached(ref, mcpConfig string) (string, string, error) {
 	return sha, mcp, err
 }
 
-// Read returns the Sample pool for a Fingerprint, ordered by numeric index. A
-// missing pool is empty, not an error (it means "all misses").
 func (s *Store) Read(key string) ([]*parser.RunRecord, error) {
 	dir := filepath.Join(s.root, key)
 	entries, err := os.ReadDir(dir)
@@ -137,10 +125,6 @@ func (s *Store) Read(key string) ([]*parser.RunRecord, error) {
 	return pool, nil
 }
 
-// Append persists one completed Run to a pool as the next index. The per-key
-// lock spans index reservation through the atomic rename, so two concurrent
-// writers cannot pick the same index. The record is stamped with the true CLI
-// version and measured concurrency without mutating the caller's copy.
 func (s *Store) Append(key string, r *parser.RunRecord) error {
 	dir := filepath.Join(s.root, key)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -197,8 +181,6 @@ func (s *Store) lockFor(key string) *sync.Mutex {
 	return lk
 }
 
-// nextIndex is max(existing index)+1, so a gap (e.g. a manually deleted record)
-// never causes an overwrite.
 func (s *Store) nextIndex(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -238,10 +220,6 @@ func indexFiles(entries []os.DirEntry) []indexFile {
 	return out
 }
 
-// gitResolver is the production resolver: the SHA from `git rev-parse <ref>` and
-// the effective MCP bytes (an explicit config wins, else the ref's committed
-// .mcp.json read straight from the object store so a fully-cached ref needs no
-// checkout).
 func gitResolver(target string) func(ref, mcpConfig string) (string, string, error) {
 	return func(ref, mcpConfig string) (string, string, error) {
 		sha, err := gitOut(target, "rev-parse", ref+"^{commit}")
@@ -269,7 +247,7 @@ func effectiveMCP(target, sha, mcpConfig string) (string, error) {
 	}
 	committed, err := gitOut(target, "show", sha+":.mcp.json")
 	if err != nil {
-		return "", nil // no committed .mcp.json at this SHA = no MCP layer
+		return "", nil
 	}
 	return committed, nil
 }

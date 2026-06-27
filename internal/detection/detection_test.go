@@ -34,9 +34,6 @@ func recsWith(text string, n int) []*parser.RunRecord {
 	return out
 }
 
-// assertDetected is the core credibility assertion: the dropped rule shows as a
-// Regression, while the untouched rule does NOT regress (disagreement is
-// tolerated — we never require it to be exactly Stable).
 func assertDetected(t *testing.T, verdicts []aggregator.Verdict) {
 	t.Helper()
 	status := map[string]aggregator.Status{}
@@ -63,16 +60,14 @@ func sectionContains(md, heading, want string) bool {
 	return strings.Contains(rest, want)
 }
 
-// TestDetection_Pure proves the grade -> compare -> render pipeline lights up
-// red on a planted regression, deterministically (no live claude -p).
 func TestDetection_Pure(t *testing.T) {
 	before := map[string]string{
 		"mascot": "The official mascot is Captain Zilworld.",
 		"money":  "Monetary amounts are stored as strings.",
 	}
 	after := map[string]string{
-		"mascot": "The project does not specify a mascot name.", // backing line dropped -> FAIL
-		"money":  "Monetary amounts are stored as strings.",     // retained -> PASS
+		"mascot": "The project does not specify a mascot name.",
+		"money":  "Monetary amounts are stored as strings.",
 	}
 
 	ctx := context.Background()
@@ -100,8 +95,6 @@ func TestDetection_Pure(t *testing.T) {
 	}
 }
 
-// TestDetection_Live builds a real degraded Environment and runs claude -p
-// against it. Gated behind CLAUDE_BENCHMARK_DOGFOOD=1 (live, costs money).
 func TestDetection_Live(t *testing.T) {
 	if os.Getenv("CLAUDE_BENCHMARK_DOGFOOD") != "1" {
 		t.Skip("set CLAUDE_BENCHMARK_DOGFOOD=1 to run")

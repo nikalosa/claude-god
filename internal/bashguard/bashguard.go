@@ -1,19 +1,3 @@
-// Package bashguard classifies a shell command as read-only or not. It is the
-// enforcement core behind the harness's PreToolUse hook: headless runs may shell
-// out to inspect the environment (cat/head/sed/grep/git, like a terminal) so the
-// context measurement mirrors a real session, but must not run arbitrary code,
-// install packages, hit the network, or mutate state a run reset cannot undo
-// (ADR-0006, ADR-0009).
-//
-// The model under test is cooperative, so the bar is not an airtight sandbox; it
-// is to block the actions the run's backstop cannot reverse. Runs execute in an
-// ephemeral git worktree whose tracked-file writes are captured and discarded, so
-// the guard deliberately does NOT chase in-tool file writes (sort -o, find
-// -fprint, uniq IN OUT). It blocks the un-backstopped classes: command-runners,
-// interpreters, command/process substitution, the network, and git subcommands
-// that would mutate the SHARED .git (refs/objects a worktree reset does not
-// restore). Output-to-a-file is still blocked so a run cannot read a file it just
-// wrote and mistake it for the environment.
 package bashguard
 
 import (
@@ -23,9 +7,6 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
-// readOnlyCmds cannot, by themselves, run another program or reach the network.
-// Command-runners (env, xargs, sudo, time, command, exec) and interpreters
-// (python, node, perl, awk, bash, sh) are absent: they hide the real command.
 var readOnlyCmds = map[string]bool{
 	"cat": true, "head": true, "tail": true, "grep": true, "egrep": true,
 	"fgrep": true, "rg": true, "ls": true, "find": true, "wc": true, "sort": true,
@@ -38,11 +19,6 @@ var readOnlyCmds = map[string]bool{
 	"strings": true, "git": true,
 }
 
-// gitReadSubcmds are git subcommands that only ever read. Any subcommand with a
-// mutating form (commit/add/checkout/reset/branch/tag/remote/stash/config/...) is
-// excluded wholesale: it can write the worktree's SHARED .git (refs, objects),
-// which the worktree reset does not restore. A read subcommand that writes a file
-// in the cwd (git diff --output) is fine — that is backstopped.
 var gitReadSubcmds = map[string]bool{
 	"log": true, "show": true, "diff": true, "diff-tree": true,
 	"diff-index": true, "blame": true, "status": true, "grep": true,
@@ -51,20 +27,12 @@ var gitReadSubcmds = map[string]bool{
 	"merge-base": true, "name-rev": true,
 }
 
-// findExecFlags turn find into an executor or tree mutator — the part a worktree
-// reset cannot undo. Pure -fprint* file writes are omitted: they are backstopped.
 var findExecFlags = map[string]bool{
 	"-delete": true, "-exec": true, "-execdir": true, "-ok": true, "-okdir": true,
 }
 
-// sedSlice matches a print-only sed script: a line address (numeric, $, N~step,
-// or /regex/) optionally to a second address (numeric, $, +N, ~N, /regex/), with
-// an optional trailing p. No w/e/r/s verb can match it, so no sed script that
-// writes a file or executes a command is accepted — use grep for anything richer.
 var sedSlice = regexp.MustCompile(`^(\$|[0-9]+|[0-9]+~[0-9]+|/[^/]+/)(,(\$|[0-9]+|\+[0-9]+|~[0-9]+|[0-9]+~[0-9]+|/[^/]+/))?p?$`)
 
-// Classify reports whether command is provably read-only. On any parse failure
-// or unresolvable construct it returns (false, reason) — fail closed.
 func Classify(command string) (allow bool, reason string) {
 	src := strings.TrimSpace(command)
 	if src == "" {
@@ -98,11 +66,6 @@ func Classify(command string) (allow bool, reason string) {
 	return true, ""
 }
 
-// checkRedirect blocks output redirection to a file (so a run cannot read back
-// something it wrote) and bash's network pseudo-devices. Descriptor duplication
-// (>&N) is allowed: the harness passes the child only fds 0/1/2, so there is no
-// leaked writable descriptor, and any write a dup reached lands in the reset
-// worktree.
 func checkRedirect(r *syntax.Redirect) string {
 	switch r.Op {
 	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc, syntax.DplIn:
@@ -113,7 +76,7 @@ func checkRedirect(r *syntax.Redirect) string {
 	case syntax.DplOut:
 		return ""
 	default:
-		// RdrOut >, AppOut >>, ClbOut >|, RdrInOut <>, RdrAll &>, AppAll &>>.
+
 		if s, ok := litOf(r.Word); ok && s == "/dev/null" {
 			return ""
 		}
@@ -121,21 +84,16 @@ func checkRedirect(r *syntax.Redirect) string {
 	}
 }
 
-// isNetDevice matches bash's network pseudo-devices anywhere in a word, so both
-// `</dev/tcp/h/p` and `--random-source=/dev/tcp/h/p` are caught.
 func isNetDevice(s string) bool {
 	return strings.Contains(s, "/dev/tcp/") || strings.Contains(s, "/dev/udp/")
 }
 
-// checkCall validates one simple command, including its environment prefix.
 func checkCall(c *syntax.CallExpr) string {
 	if len(c.Args) == 0 {
-		return "" // pure assignment (e.g. FOO=bar) with no command — harmless
+		return ""
 	}
 	if len(c.Assigns) > 0 {
-		// `GIT_EXTERNAL_DIFF=evil git diff`, `LESSOPEN='|sh' less` etc. — an inline
-		// env prefix is an exec/behaviour-injection vector and is never needed to
-		// read a file.
+
 		return "inline environment assignment before a command is not allowed"
 	}
 	return checkCommand(c.Args)
@@ -147,9 +105,7 @@ func checkCommand(args []*syntax.Word) string {
 		return "dynamic command name is not allowed"
 	}
 	if strings.ContainsRune(name, '/') {
-		// `./cat`, `bin/cat`, `../cat` resolve to a path.Base in the allowlist but
-		// run an attacker-controlled file. A read-only run only needs PATH-resolved
-		// bare commands.
+
 		return "explicit command paths are not allowed; use a bare command name: " + name
 	}
 	if !readOnlyCmds[name] {
@@ -171,11 +127,6 @@ func checkCommand(args []*syntax.Word) string {
 	return ""
 }
 
-// checkGit allows only read-only subcommands and forbids every git global flag
-// before the subcommand — that single rule blocks the config-injection RCE
-// vectors (`-c core.pager=…`, `-c diff.external=…`, `--exec-path`). The only
-// subcommand-level exec vector among the read subcommands is `git grep -O`
-// (opens a pager), which is denied explicitly.
 func checkGit(args []*syntax.Word) string {
 	sub := ""
 	for _, w := range args[1:] {
@@ -204,10 +155,6 @@ func checkGit(args []*syntax.Word) string {
 	return ""
 }
 
-// checkSed allows sed only as a print-only slicer: -n/-E/-r/-s/-u/-z flags and -e
-// expression scripts, where every script is a print-only line range (see
-// sedSlice). It rejects -i/-f and any script with a w/e/r/s verb. A bundled
-// trailing -e (the common `-ne 'script'`) routes its next token as the script.
 func checkSed(args []*syntax.Word) string {
 	var scripts []string
 	sawExpr := false
@@ -266,7 +213,7 @@ func checkSed(args []*syntax.Word) string {
 			firstBareIsScript = false
 			continue
 		}
-		// remaining bare args are input file paths — read-only
+
 	}
 	if len(scripts) == 0 {
 		return "sed requires an explicit print-only script"
@@ -298,9 +245,6 @@ func checkFind(args []*syntax.Word) string {
 	return ""
 }
 
-// litOf resolves a word to its static string value, reporting ok=false if any
-// part is dynamic (parameter/command expansion), since a dynamic value cannot be
-// vetted statically.
 func litOf(w *syntax.Word) (string, bool) {
 	if w == nil {
 		return "", false

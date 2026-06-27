@@ -20,11 +20,6 @@ const (
 	Medium   Severity = "medium"
 )
 
-// ProbeKind distinguishes a rule-based probe (graded absolutely against Rules)
-// from an open-ended probe (graded comparatively by the Judge). The kind is
-// explicit, never inferred from an empty rule list: an accidentally-emptied
-// rules block must be a load error, not a silently report-only probe — this is
-// the one tool whose job is catching silently-dropped rules.
 type ProbeKind string
 
 const (
@@ -40,12 +35,8 @@ type Probe struct {
 	Rules  []Rule
 }
 
-// OpenEnded reports whether the probe's kind is exactly open_ended.
 func (p Probe) OpenEnded() bool { return p.Kind == OpenEnded }
 
-// Comparative reports whether the probe is graded by comparative preference.
-// open_ended and plan probes both reuse the preference path (no Rules, judged
-// head-to-head); the only difference is plan asks for a step-by-step plan.
 func (p Probe) Comparative() bool { return p.Kind == OpenEnded || p.Kind == Plan }
 
 type Rule struct {
@@ -54,10 +45,6 @@ type Rule struct {
 	Checks   []Check
 }
 
-// EvalInput is everything a Check grades against: the probe prompt (the
-// question the run answered), the run's record, and the Judge (nil unless the
-// corpus needs one). A regex check reads only Record; a judge check also needs
-// Prompt and Judge.
 type EvalInput struct {
 	Prompt string
 	Record *parser.RunRecord
@@ -69,8 +56,6 @@ type Check interface {
 	String() string
 }
 
-// TextMatches is a deterministic regex check over the final assistant text. It
-// never touches the Judge, so judge noise cannot reach this path.
 type TextMatches struct {
 	Pattern *regexp.Regexp
 }
@@ -81,10 +66,6 @@ func (c *TextMatches) Eval(_ context.Context, in EvalInput) (bool, error) {
 
 func (c *TextMatches) String() string { return "text_matches:" + c.Pattern.String() }
 
-// JudgeRubric grades the run's answer against a list of facts via the Judge,
-// passing when the score meets PassScore. It grades ONE run; the aggregator's
-// majority vote across the N (odd) samples collapses to the rule outcome, which
-// for odd N equals taking the median score and thresholding it (ADR-0002).
 type JudgeRubric struct {
 	Facts     []string
 	PassScore int
@@ -111,11 +92,6 @@ type RuleResult struct {
 	Pass     bool
 }
 
-// Grade evaluates each rule's checks against one run. A rule passes only if all
-// its checks pass; checks short-circuit on the first failure (so a regex FAIL
-// ordered before a judge check skips the judge call). A check error aborts and
-// is returned — a judge hiccup fails the run loudly rather than silently
-// flipping a deterministic outcome.
 func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Rule, j judge.Judge) ([]RuleResult, error) {
 	out := make([]RuleResult, 0, len(rules))
 	in := EvalInput{Prompt: prompt, Record: rec, Judge: j}
@@ -136,8 +112,6 @@ func Grade(ctx context.Context, prompt string, rec *parser.RunRecord, rules []Ru
 	return out, nil
 }
 
-// NeedsJudge reports whether any check in the corpus is judge-backed, so the
-// caller builds a Judge (and requires --judge) exactly when needed.
 func NeedsJudge(probes []Probe) bool {
 	for _, p := range probes {
 		if p.Comparative() {
@@ -150,10 +124,6 @@ func NeedsJudge(probes []Probe) bool {
 	return false
 }
 
-// NeedsRubricJudge reports whether any rule carries a judge_rubric check. It is
-// the single-env judge test: assess never runs a Preference comparison (one
-// answer has nothing to prefer against), so comparative probes need no judge —
-// only an absolute judge_rubric rule does.
 func NeedsRubricJudge(probes []Probe) bool {
 	for _, p := range probes {
 		for _, r := range p.Rules {
@@ -270,10 +240,6 @@ func parseSeverity(s string) (Severity, error) {
 	}
 }
 
-// buildCheck decodes one check entry. Each entry must carry exactly one kind;
-// the single-key map preserves that invariant and rejects unknown kinds for
-// free, while yaml.Node defers value decoding so richer kinds (judge_rubric)
-// can carry structured data.
 func buildCheck(raw map[string]yaml.Node) (Check, error) {
 	if len(raw) != 1 {
 		return nil, fmt.Errorf("check must have exactly one kind, got %d", len(raw))

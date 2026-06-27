@@ -19,10 +19,6 @@ func rec(text string) *parser.RunRecord {
 		ModelUsage:        map[string]parser.ModelUsage{"m": {InputTokens: 100, OutputTokens: 20}}}
 }
 
-// TestDumpAnswers_WritesJudgedPair: a comparative probe writes its verdict plus
-// both answers; a rule-based probe writes both answers and notes it has no
-// preference; the index lists every probe. Sample 1 (index 0) is the judged
-// pair, so only the first sample is dumped even when more were run.
 func TestDumpAnswers_WritesJudgedPair(t *testing.T) {
 	dir := t.TempDir()
 	probes := []dsl.Probe{
@@ -66,8 +62,6 @@ func TestDumpAnswers_WritesJudgedPair(t *testing.T) {
 	}
 }
 
-// TestDumpAnswers_MissingRecord: a nil record (a sample that never landed) must
-// not panic — it renders a placeholder so the rest of the dump still writes.
 func TestDumpAnswers_MissingRecord(t *testing.T) {
 	dir := t.TempDir()
 	probes := []dsl.Probe{{ID: "p", Prompt: "q", Kind: dsl.OpenEnded}}

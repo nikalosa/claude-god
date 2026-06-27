@@ -44,9 +44,6 @@ func TestParseEnvelope_EmptyResult(t *testing.T) {
 	}
 }
 
-// TestClaudeBackend_Smoke exercises the live claude -p judge path. Gated behind
-// CLAUDE_BENCHMARK_DOGFOOD=1 because it shells out to a real invocation (costs
-// money, takes seconds) — the parsing paths above are covered without it.
 func TestClaudeBackend_Smoke(t *testing.T) {
 	if os.Getenv("CLAUDE_BENCHMARK_DOGFOOD") != "1" {
 		t.Skip("set CLAUDE_BENCHMARK_DOGFOOD=1 to run")

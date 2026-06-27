@@ -1,12 +1,3 @@
-// Package snapshot pins a target repo's Environment to a benchmark/<name>
-// branch the run/calibrate commands consume, so the Before/After comparison is
-// reproducible and the developer is not hand-managing git branches.
-//
-// The branch captures the committed HEAD tree (CLAUDE.md root+nested, Claude
-// rules, docs) plus, by default, the project memory copied into
-// .benchmark/memory-snapshot (where the harness's memory swap reads it). It is
-// built in a throwaway worktree so the developer's working tree is untouched.
-// Commit your Environment edits before snapshotting: the snapshot reflects HEAD.
 package snapshot
 
 import (
@@ -29,8 +20,6 @@ type Opts struct {
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// Create captures the target's Environment as the branch benchmark/<name> and
-// returns the branch name. Re-snapshotting overwrites the branch.
 func Create(ctx context.Context, opts Opts) (string, error) {
 	if opts.Name == "" {
 		return "", fmt.Errorf("snapshot name is required")
@@ -67,8 +56,6 @@ func Create(ctx context.Context, opts Opts) (string, error) {
 	return branch, snapshotWithMemory(ctx, abs, branch, opts.Name, memDir)
 }
 
-// snapshotWithMemory builds the snapshot commit in a throwaway detached worktree
-// (HEAD tree + injected memory), then points the branch at it.
 func snapshotWithMemory(ctx context.Context, repo, branch, name, memDir string) error {
 	tmp, err := os.MkdirTemp("", "claude-benchmark-snapshot-*")
 	if err != nil {
@@ -86,7 +73,7 @@ func snapshotWithMemory(ctx context.Context, repo, branch, name, memDir string) 
 	if err := copyDir(memDir, dst); err != nil {
 		return fmt.Errorf("copy memory: %w", err)
 	}
-	// -f so memory lands even if the target .gitignores .benchmark.
+
 	if _, err := git(ctx, wt, "add", "-f", ".benchmark/memory-snapshot"); err != nil {
 		return err
 	}
@@ -107,8 +94,6 @@ func pointBranch(ctx context.Context, repo, branch, at string) error {
 	return nil
 }
 
-// MemoryDir returns the canonical project-memory directory for a target repo:
-// ~/.claude/projects/<abs-target-with-slashes-as-dashes>/memory.
 func MemoryDir(targetRepo string) (string, error) {
 	abs, err := filepath.Abs(targetRepo)
 	if err != nil {

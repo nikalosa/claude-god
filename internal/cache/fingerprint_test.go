@@ -14,8 +14,6 @@ func baseInputs() Inputs {
 	}
 }
 
-// TestFingerprint_Deterministic: the key is a pure function of its inputs — same
-// inputs must hash to the same 64-char hex digest every call.
 func TestFingerprint_Deterministic(t *testing.T) {
 	a := Fingerprint(baseInputs())
 	b := Fingerprint(baseInputs())
@@ -27,10 +25,6 @@ func TestFingerprint_Deterministic(t *testing.T) {
 	}
 }
 
-// TestFingerprint_EveryFieldIsKeyed is the false-hit guard: changing ANY keyed
-// input must change the digest. A field silently dropped from the key would serve
-// a stale run for a changed environment — the one failure that corrupts a fidelity
-// tool (ADR-0016 landmine).
 func TestFingerprint_EveryFieldIsKeyed(t *testing.T) {
 	base := Fingerprint(baseInputs())
 	mutate := map[string]func(*Inputs){
@@ -51,9 +45,6 @@ func TestFingerprint_EveryFieldIsKeyed(t *testing.T) {
 	}
 }
 
-// TestFingerprint_NoConcatAmbiguity: fields must be unambiguously delimited, so
-// moving a character across a field boundary changes the digest (else "ab"+"c"
-// and "a"+"bc" would collide into one pool).
 func TestFingerprint_NoConcatAmbiguity(t *testing.T) {
 	x := baseInputs()
 	x.Model, x.Effort = "ab", "c"
@@ -64,10 +55,6 @@ func TestFingerprint_NoConcatAmbiguity(t *testing.T) {
 	}
 }
 
-// TestFingerprint_MCPNormalized: an effective MCP config that differs only in
-// whitespace/key-order is the same environment, so it must hit the same pool —
-// reformatting .mcp.json must not force a multi-hour re-run. A genuine change
-// (different server) must still miss.
 func TestFingerprint_MCPNormalized(t *testing.T) {
 	compact := baseInputs()
 	compact.MCPConfig = `{"mcpServers":{"cg":{"command":"x"}}}`
@@ -84,8 +71,6 @@ func TestFingerprint_MCPNormalized(t *testing.T) {
 	}
 }
 
-// TestFingerprint_EmptyMCP: no MCP layer is a valid, stable environment; it must
-// hash deterministically and differ from any non-empty config.
 func TestFingerprint_EmptyMCP(t *testing.T) {
 	none := baseInputs()
 	none.MCPConfig = ""

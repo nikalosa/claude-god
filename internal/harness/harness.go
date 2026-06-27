@@ -15,9 +15,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
-// worktreeMu serializes `git worktree add`/`remove` against the target repo's
-// shared .git: concurrent runs would otherwise race on git's index lock. Held
-// only across the millisecond-scale git call, never across the run itself.
 var worktreeMu sync.Mutex
 
 type Opts struct {
@@ -35,10 +32,6 @@ type Result struct {
 	Record *parser.RunRecord
 }
 
-// PrepareOpts configures a per-ref worktree: the target repo, the committish to
-// check out, the memory policy injected once for the ref's lifetime, and the
-// model/effort every Run of this ref invokes claude with (controlled variables,
-// keyed by the Run cache).
 type PrepareOpts struct {
 	TargetRepo    string
 	Ref           string
@@ -48,11 +41,6 @@ type PrepareOpts struct {
 	Effort        string
 }
 
-// Worktree is a checkout of one ref, shared by every Run of that ref (ADR-0015).
-// Runs are read-only (ADR-0006), so a shared cwd is safe; the tree is created
-// once by Prepare and torn down once by Close. RunIn is safe to call
-// concurrently for one Worktree — claude keys session state by per-run UUID and
-// never mutates the tree — but Prepare/Close on a handle are not.
 type Worktree struct {
 	path       string
 	tmpdir     string
@@ -62,8 +50,6 @@ type Worktree struct {
 	restoreMem func()
 }
 
-// Prepare checks ref out into a fresh worktree and injects its memory once. The
-// returned Worktree is shared across all Runs of the ref; release it with Close.
 func Prepare(ctx context.Context, opts PrepareOpts) (*Worktree, error) {
 	if !filepath.IsAbs(opts.TargetRepo) {
 		return nil, errors.New("TargetRepo must be absolute")
@@ -78,11 +64,6 @@ func Prepare(ctx context.Context, opts PrepareOpts) (*Worktree, error) {
 	}
 	path := filepath.Join(tmpdir, "wt")
 
-	// Only the worktree admin op races on the shared .git, so lock just that
-	// (fast: --no-checkout writes no files) and run the slow checkout outside the
-	// lock. The tree is shared by every Run of this ref (ADR-0015): runs are
-	// read-only, so a shared cwd is safe, and session state is keyed per-run by
-	// UUID, so concurrent runs never collide in the shared project slug.
 	worktreeMu.Lock()
 	addErr := gitC(ctx, opts.TargetRepo, "worktree", "add", "--no-checkout", "--detach", path, opts.Ref)
 	worktreeMu.Unlock()
@@ -109,10 +90,6 @@ func Prepare(ctx context.Context, opts PrepareOpts) (*Worktree, error) {
 	return w, nil
 }
 
-// RunIn executes one read-only `claude -p` for prompt in the shared worktree and
-// returns its parsed record. mcpCfg is per-run — Before and After can share a
-// tree and differ only here; empty falls back to the ref's committed .mcp.json.
-// Safe to call concurrently for one Worktree.
 func (w *Worktree) RunIn(ctx context.Context, prompt, mcpCfg string) (*Result, error) {
 	if prompt == "" {
 		return nil, errors.New("Prompt required")
@@ -145,10 +122,6 @@ func (w *Worktree) RunIn(ctx context.Context, prompt, mcpCfg string) (*Result, e
 	return &Result{Record: rec}, nil
 }
 
-// Close releases the worktree once all Runs have finished: it restores memory
-// (removes the injected project slug) and removes the worktree. It must run
-// after the run pool drains — a per-run Close would wipe the slug that sibling
-// runs are still writing transcripts into (ADR-0015).
 func (w *Worktree) Close() error {
 	w.restoreMem()
 	err := removeWorktree(w.targetRepo, w.path)
@@ -162,9 +135,6 @@ func removeWorktree(targetRepo, path string) error {
 	return gitC(context.Background(), targetRepo, "worktree", "remove", "--force", path)
 }
 
-// Run is the one-shot path: Prepare + a single RunIn + Close. Used for one-off
-// invocations and the dogfood test; the benchmark pool shares a worktree across
-// runs by driving Prepare/RunIn/Close directly.
 func Run(ctx context.Context, opts Opts) (*Result, error) {
 	wt, err := Prepare(ctx, PrepareOpts{
 		TargetRepo:    opts.TargetRepo,
@@ -181,9 +151,6 @@ func Run(ctx context.Context, opts Opts) (*Result, error) {
 	return wt.RunIn(ctx, opts.Prompt, opts.MCPConfig)
 }
 
-// memorySource picks what to inject into the worktree: an explicit live source
-// (the bare command's current project memory) wins; --no-memory-snapshot
-// disables injection; otherwise the committed snapshot pinned in the worktree.
 func memorySource(worktree, source string, noSnapshot bool) string {
 	if source != "" {
 		return source
@@ -220,11 +187,6 @@ func swapMemory(worktree, src string) (restore func(), err error) {
 	}, nil
 }
 
-// mcpConfig resolves which MCP servers this Environment carries: an explicit
-// config (a --mcp-config file path or inline JSON) wins; otherwise the ref's
-// committed .mcp.json if the worktree has one. Empty means no MCP. The result is
-// always paired with --strict-mcp-config in invokeClaude, so MCP is a controlled
-// variable — never the ambient user/global servers that default discovery leaks.
 func mcpConfig(worktree string, opts Opts) string {
 	if opts.MCPConfig != "" {
 		return opts.MCPConfig
@@ -243,16 +205,6 @@ func invokeClaude(ctx context.Context, cwd, prompt, mcp, model, effort, streamPa
 	}
 	defer out.Close()
 
-	// Runs are read-only (ADR-0006): grading reads the assistant text, so the
-	// model may inspect the env but must not mutate the tree, hit the network, or
-	// open a browser. Edit/Write/WebFetch/Agent stay bare-name disallowed (which
-	// holds even under bypassPermissions). Bash is re-enabled so the model loads
-	// content the way a terminal does (cat/head/sed/grep slices, not whole-file
-	// Reads) and constrained to read-only by a PreToolUse hook — the only lever
-	// that survives bypassPermissions, where scoped Bash(...) rules do not.
-	// --disable-slash-commands drops skills, which are not part of the Environment.
-	// --strict-mcp-config makes MCP part of the Environment under test: only the
-	// servers the caller pins load, never the dev's ambient user/global config.
 	settings, err := readOnlyBashSettings()
 	if err != nil {
 		return err
@@ -265,21 +217,6 @@ func invokeClaude(ctx context.Context, cwd, prompt, mcp, model, effort, streamPa
 	return cmd.Run()
 }
 
-// checkMCPHealth fails a run whose declared MCP servers were not actually usable.
-// declared is the server set the Environment pinned (from the --mcp-config); under
-// --strict-mcp-config that is exactly what should load. A declared server is fine
-// only if init reports it "connected" OR it made at least one mcp__<name>__* tool
-// call (proof it loaded and was reachable). Anything else means the controlled
-// variable silently went missing and grading the run would report a false "no
-// difference":
-//   - "disabled": disabled by name in the dev's ambient ~/.claude.json
-//     (disabledMcpServers), which --strict-mcp-config does not override.
-//   - "pending"/absent with zero calls: the headless client started its turn
-//     before the stdio MCP handshake finished — the startup race under concurrency.
-//
-// "pending" is ambiguous on its own (it can still connect-and-be-used), so a tool
-// call is the only positive proof; the run pool retries a failure at low
-// concurrency, where the handshake wins.
 func checkMCPHealth(declared []string, servers []parser.MCPServer, calls []parser.ToolCall) error {
 	if len(declared) == 0 {
 		return nil
@@ -306,11 +243,6 @@ func checkMCPHealth(declared []string, servers []parser.MCPServer, calls []parse
 	return nil
 }
 
-// declaredMCPServers returns the server names a --mcp-config declares — inline
-// JSON or a file path, both shaped {"mcpServers":{<name>:{...}}}. It is how the
-// harness knows which servers *should* have loaded, so checkMCPHealth can catch a
-// declared server that never appeared. An empty config or any parse failure yields
-// no names (nothing to assert).
 func declaredMCPServers(mcp string) []string {
 	if mcp == "" {
 		return nil
@@ -336,9 +268,6 @@ func declaredMCPServers(mcp string) []string {
 	return names
 }
 
-// mcpCallCounts tallies how many times each MCP server's tools were called, keyed
-// by server name. MCP tool calls are named mcp__<server>__<tool>; the server
-// segment is the proof a declared server actually loaded and was usable.
 func mcpCallCounts(calls []parser.ToolCall) map[string]int {
 	const prefix = "mcp__"
 	counts := map[string]int{}
@@ -356,14 +285,6 @@ func mcpCallCounts(calls []parser.ToolCall) map[string]int {
 	return counts
 }
 
-// SanitizedEnv strips the launcher's Claude Code session/effort variables so the
-// benchmarked `claude -p` runs in a controlled environment, not whatever the
-// process that started the tool happened to carry. Without this, launching the
-// tool from inside a Claude Code session leaks CLAUDE_EFFORT (reasoning effort),
-// CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, CLAUDECODE, etc. into every
-// run — making results depend on where the tool was launched (non-reproducible).
-// Denylist, not allowlist: PATH/HOME/TMPDIR/ANTHROPIC_* must pass through for
-// claude to find its binary, config, and auth.
 func SanitizedEnv(env []string) []string {
 	out := env[:0:0]
 	for _, kv := range env {
@@ -380,10 +301,6 @@ func SanitizedEnv(env []string) []string {
 	return out
 }
 
-// claudeArgs builds the headless claude -p argv. Split out so tests pin the
-// read-only and MCP flags without shelling out. model/effort pin the model and
-// reasoning effort as controlled variables the Run cache keys on; each is passed
-// only when set, so the one-shot Run path keeps claude's configured defaults.
 func claudeArgs(prompt, mcp, settings, model, effort string) []string {
 	args := []string{"-p", prompt,
 		"--output-format", "stream-json",
@@ -405,11 +322,6 @@ func claudeArgs(prompt, mcp, settings, model, effort string) []string {
 	return args
 }
 
-// readOnlyBashSettings returns an inline Claude Code settings JSON registering a
-// PreToolUse hook on Bash that shells back into this binary's hidden
-// __bash-read-guard subcommand. The guard blocks (exit 2) any command that is
-// not provably read-only. Passed via --settings, it overrides the worktree's own
-// settings (precedence 2) without editing the tree.
 func readOnlyBashSettings() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Outcome of a comparison between the Before and After answers.
 type Outcome string
 
 const (
@@ -18,7 +17,6 @@ const (
 	AfterBetter  Outcome = "after_better"
 )
 
-// Label renders the outcome for a human-read report.
 func (o Outcome) Label() string {
 	switch o {
 	case BeforeBetter:
@@ -30,31 +28,22 @@ func (o Outcome) Label() string {
 	}
 }
 
-// Preference is the result of comparing two answers head-to-head across three
-// dimensions. Report-only: it never carries a PASS/FAIL or severity.
 type Preference struct {
-	Outcome    Outcome // overall, surviving both orderings
+	Outcome    Outcome
 	Concise    Outcome
 	Exhaustive Outcome
 	Direct     Outcome
 	Reasoning  string
 }
 
-// Judge grades Claude answers. Implementations stay neutral (no target
-// Environment) and isolated from the deterministic pattern path.
 type Judge interface {
-	// Score grades one answer against a rubric (facts it should contain),
-	// returning 0..100 (percent of facts present). The N=3 median is taken at
-	// the call site, not here.
 	Score(ctx context.Context, question, answer string, rubric []string) (int, error)
-	// Prefer compares Before vs After across concise/exhaustive/direct, running
-	// both orderings; a side wins only if it wins in both, else Tie.
+
 	Prefer(ctx context.Context, question, before, after string) (Preference, error)
 }
 
 type client struct{ backend Backend }
 
-// New returns a Judge backed by b.
 func New(b Backend) Judge { return &client{backend: b} }
 
 type scoreVerdict struct {
@@ -86,7 +75,7 @@ func (c *client) Score(ctx context.Context, question, answer string, rubric []st
 			present++
 		}
 	}
-	total := len(rubric) // authoritative denominator; the rubric we asked about
+	total := len(rubric)
 	if present > total {
 		present = total
 	}
@@ -102,16 +91,15 @@ type prefVerdict struct {
 }
 
 func (c *client) Prefer(ctx context.Context, question, before, after string) (Preference, error) {
-	a, err := c.compareOnce(ctx, question, before, after) // pos1=before, pos2=after
+	a, err := c.compareOnce(ctx, question, before, after)
 	if err != nil {
 		return Preference{}, err
 	}
-	b, err := c.compareOnce(ctx, question, after, before) // pos1=after, pos2=before
+	b, err := c.compareOnce(ctx, question, after, before)
 	if err != nil {
 		return Preference{}, err
 	}
-	// A side wins a dimension only if it wins in BOTH orderings; the positional
-	// meaning of winner 1/2 is swapped between orderings.
+
 	dim := func(av, bv int) Outcome {
 		return combine(
 			mapWinner(av, BeforeBetter, AfterBetter),

@@ -14,12 +14,6 @@ import (
 
 var dumpSlug = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// DumpAnswers writes the judged Before/After answer pair for each probe to dir,
-// one Markdown file per probe (NN-<id>.md) plus an index.md, so a human can
-// compare the two Environments on context window and time and read the plans the
-// judge actually compared (sample 1). prefs is indexed by probe (nil for a
-// rule-based probe). It is report-only: the caller treats a write error as a
-// warning so a failed dump never discards a run.
 func DumpAnswers(dir, beforeRef, afterRef string, probes []dsl.Probe, before, after [][]*parser.RunRecord, prefs []*runner.PreferenceResult) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -89,8 +83,6 @@ func probeDoc(probe dsl.Probe, before, after *parser.RunRecord, pref *runner.Pre
 	return b.String()
 }
 
-// comparison is the heart of the dump: context window and time side by side, the
-// two metrics the A/B is for. Output length is intentionally not headlined.
 func comparison(before, after *parser.RunRecord, beforeRef, afterRef string) string {
 	if before == nil || after == nil {
 		return "_Comparison unavailable — a run record is missing._\n"

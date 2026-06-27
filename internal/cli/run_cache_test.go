@@ -14,9 +14,6 @@ import (
 var before = Env{Ref: "before"}
 var after = Env{Ref: "after"}
 
-// countingFakeRun wraps the deterministic fakeRun and tallies how many times the
-// run pool actually entered claude — the load-bearing cache assertion is that a
-// served sample costs zero runs.
 func countingFakeRun(calls *int64) runFunc {
 	return func(ctx context.Context, env Env, prompt string) (*parser.RunRecord, error) {
 		atomic.AddInt64(calls, 1)
@@ -24,9 +21,6 @@ func countingFakeRun(calls *int64) runFunc {
 	}
 }
 
-// serialCountingRun returns a distinct record per call so the persisted order and
-// pool[0] identity are observable (fakeRun returns identical records, which hides
-// reordering).
 func serialCountingRun(calls *int64) runFunc {
 	return func(_ context.Context, _ Env, _ string) (*parser.RunRecord, error) {
 		n := atomic.AddInt64(calls, 1)
@@ -38,9 +32,6 @@ func serialCountingRun(calls *int64) runFunc {
 	}
 }
 
-// TestCache_SecondRunAllHits is the headline guarantee: re-running identical
-// inputs serves every sample from the cache (zero runs) and reproduces the exact
-// grades — write-through on run 1 makes run 2 free and identical.
 func TestCache_SecondRunAllHits(t *testing.T) {
 	store := tc(t)
 	probes := poolTestProbes()
@@ -52,7 +43,7 @@ func TestCache_SecondRunAllHits(t *testing.T) {
 		t.Fatalf("run 1: %v", err)
 	}
 	first := atomic.LoadInt64(&calls)
-	if want := int64(2 * 3 * 2); first != want { // probes × samples × sides
+	if want := int64(2 * 3 * 2); first != want {
 		t.Fatalf("run 1 should run every sample: want %d runs, got %d", want, first)
 	}
 
@@ -68,9 +59,6 @@ func TestCache_SecondRunAllHits(t *testing.T) {
 	}
 }
 
-// TestCache_ChangedPromptMisses: an edited probe prompt is a new Fingerprint, so
-// it re-runs (both sides) while every unchanged probe still hits — the guard
-// against a silent false hit on a changed environment.
 func TestCache_ChangedPromptMisses(t *testing.T) {
 	store := tc(t)
 	var calls int64
@@ -91,9 +79,6 @@ func TestCache_ChangedPromptMisses(t *testing.T) {
 	}
 }
 
-// TestCache_GrowShrinkPreservesPrefix: a request for a larger N appends fresh
-// runs (pool[0] unchanged); a smaller N takes the deterministic prefix without
-// running or discarding anything.
 func TestCache_GrowShrinkPreservesPrefix(t *testing.T) {
 	store := tc(t)
 	probes := []dsl.Probe{poolTestProbes()[0]}
@@ -133,8 +118,6 @@ func TestCache_GrowShrinkPreservesPrefix(t *testing.T) {
 	}
 }
 
-// TestCache_ResumesFromCheckpoint: write-through means an interrupted batch
-// resumes — a side already in the cache is not re-run, only the missing side is.
 func TestCache_ResumesFromCheckpoint(t *testing.T) {
 	store := tc(t)
 	probes := []dsl.Probe{poolTestProbes()[0]}
@@ -152,8 +135,6 @@ func TestCache_ResumesFromCheckpoint(t *testing.T) {
 	}
 }
 
-// TestCache_NoCacheBypassesReadStillWrites: --no-cache ignores the cached pool
-// (fresh draws to re-measure noise) but still appends, growing the pool.
 func TestCache_NoCacheBypassesReadStillWrites(t *testing.T) {
 	store := tc(t)
 	probes := []dsl.Probe{poolTestProbes()[0]}
@@ -177,11 +158,6 @@ func TestCache_NoCacheBypassesReadStillWrites(t *testing.T) {
 	}
 }
 
-// TestCache_VolatileSideNeverCached: the uncommitted working-tree side (Volatile)
-// is never read or written — it always runs fresh and leaves no pool, while the
-// committed baseline still caches (ADR-0016 baseline-only cache). This is the
-// dominant testing-time loop: a stable Before reused across iterations, an After
-// that changes every run.
 func TestCache_VolatileSideNeverCached(t *testing.T) {
 	store := tc(t)
 	probes := []dsl.Probe{poolTestProbes()[0]}
@@ -211,9 +187,6 @@ func TestCache_VolatileSideNeverCached(t *testing.T) {
 	}
 }
 
-// TestCache_NoCacheIndependentArmsShareKey: a Before-vs-Before calibration runs
-// both arms against one Fingerprint; --no-cache must draw each arm independently
-// (two fresh runs into the shared pool), not replay one record for both.
 func TestCache_NoCacheIndependentArmsShareKey(t *testing.T) {
 	store := tc(t)
 	probes := []dsl.Probe{poolTestProbes()[0]}

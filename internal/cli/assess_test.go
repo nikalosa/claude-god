@@ -8,10 +8,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/dsl"
 )
 
-// TestJudgeForAssess pins the single-env judge rule: comparative probes need no
-// judge (assess never runs a Preference comparison), only a judge_rubric rule
-// does. So an open_ended-only corpus assesses without --judge, but a
-// judge_rubric corpus needs it.
 func TestJudgeForAssess(t *testing.T) {
 	comparative := []dsl.Probe{{ID: "design", Prompt: "x", Kind: dsl.OpenEnded}}
 	if j, err := judgeForAssess(comparative, false); err != nil || j != nil {
@@ -29,9 +25,6 @@ func TestJudgeForAssess(t *testing.T) {
 	}
 }
 
-// TestRunSingleEnv grades one Environment absolutely: a rule_based probe passes
-// or fails on its own (no second side), and a comparative probe produces Numbers
-// but no rules and needs no judge.
 func TestRunSingleEnv(t *testing.T) {
 	probes := append(poolTestProbes(), dsl.Probe{ID: "design", Prompt: "design", Kind: dsl.OpenEnded})
 	ctx := context.Background()
@@ -48,8 +41,7 @@ func TestRunSingleEnv(t *testing.T) {
 	for i, a := range aggs {
 		byID[a.ProbeID] = i
 	}
-	// fakeRun returns PASS only for (prompt A, branch before): probe A passes,
-	// probe B fails, both on the one env.
+
 	a := aggs[byID["A"]].Before
 	if len(a.Rules) != 1 || !a.Rules[0].Pass {
 		t.Errorf("probe A should pass single-env: %+v", a.Rules)
@@ -60,19 +52,16 @@ func TestRunSingleEnv(t *testing.T) {
 	if b := aggs[byID["B"]].Before; len(b.Rules) != 1 || b.Rules[0].Pass {
 		t.Errorf("probe B should fail single-env: %+v", b.Rules)
 	}
-	// The comparative probe is run for Numbers but carries no rules.
+
 	if d := aggs[byID["design"]].Before; len(d.Rules) != 0 || d.MedianCost == 0 {
 		t.Errorf("comparative probe should have no rules but real Numbers: %+v", d)
 	}
-	// No second side is ever run.
+
 	if aggs[byID["A"]].After.MedianCost != 0 {
 		t.Error("assess must not run a second Environment")
 	}
 }
 
-// TestRunSingleEnv_DeterministicAcrossConcurrency: the pool is a scheduling
-// detail, so the single-env aggregates must be identical at --concurrency 1 and
-// 8. Run with -race for the indexed writes.
 func TestRunSingleEnv_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()

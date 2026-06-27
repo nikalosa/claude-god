@@ -20,10 +20,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/report"
 )
 
-// tc is a Run cache backed by a fresh temp dir with a faked resolver (no git),
-// so the pool tests exercise the real cache path without shelling out. A fresh
-// store per call keeps determinism tests honest: both concurrency levels run all
-// samples rather than the second serving the first's writes.
 func tc(t *testing.T) *cache.Store {
 	t.Helper()
 	return cache.New(cache.Opts{
@@ -38,9 +34,6 @@ func tc(t *testing.T) *cache.Store {
 	})
 }
 
-// fakeRun is a deterministic runFunc: its record is a pure function of
-// (env, prompt), so the only thing that can vary between concurrency levels
-// is the pool's own scheduling — which must not change the result.
 func fakeRun(_ context.Context, env Env, prompt string) (*parser.RunRecord, error) {
 	pass := (prompt == "A" && env.Ref == "before") || (prompt == "B" && env.Ref == "after")
 	text := "nope"
@@ -65,10 +58,6 @@ func poolTestProbes() []dsl.Probe {
 	return []dsl.Probe{mk("A", "A"), mk("B", "B")}
 }
 
-// TestRunBenchmark_DeterministicAcrossConcurrency is the core guarantee: the
-// pool is a scheduling detail, so verdicts and Numbers must be identical at
-// --concurrency 1 and 8 for the same inputs. Run with -race for the indexed
-// writes.
 func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	probes := poolTestProbes()
 	ctx := context.Background()
@@ -92,8 +81,6 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 		t.Errorf("preferences differ by concurrency")
 	}
 
-	// Guard against a vacuous pass: the fixture must actually produce a flip in
-	// each direction, so the determinism check is grading something real.
 	var reg, newp int
 	for _, v := range v1 {
 		switch v.Status {
@@ -108,10 +95,6 @@ func TestRunBenchmark_DeterministicAcrossConcurrency(t *testing.T) {
 	}
 }
 
-// TestRunBenchmark_DumpDirWritesAnswers proves the dumpDir seam threads through:
-// when set, runBenchmark writes one Markdown file per probe holding the judged
-// Before/After answers, and an index. An empty dumpDir (every other test) writes
-// nothing.
 func TestRunBenchmark_DumpDirWritesAnswers(t *testing.T) {
 	dir := t.TempDir()
 	probes := openEndedProbes("alpha", "beta")
@@ -135,11 +118,6 @@ func TestRunBenchmark_DumpDirWritesAnswers(t *testing.T) {
 	}
 }
 
-// TestMCPGuard pins the MCP-aware concurrency policy: with no Environment
-// declaring MCP the pool runs at the requested concurrency and retries are
-// unsynchronized (gate nil); as soon as one declares MCP the first-pass
-// concurrency is capped and a retry gate is returned so re-rolls serialize. The
-// cap never raises a concurrency already below it.
 func TestMCPGuard(t *testing.T) {
 	if limit, gate := mcpGuard(8, Env{Ref: "before"}, Env{Ref: "after"}); limit != 8 || gate != nil {
 		t.Errorf("no MCP: want (8, nil), got (%d, %v)", limit, gate)
@@ -160,10 +138,6 @@ func openEndedProbes(ids ...string) []dsl.Probe {
 	return probes
 }
 
-// TestRunBenchmark_JudgeDeterministicAcrossConcurrency extends the determinism
-// guarantee to the judge path: open-ended probes route through j.Prefer, and
-// the compacted preferences must stay in probe order regardless of which task
-// finishes first. Run with -race for the indexed writes.
 func TestRunBenchmark_JudgeDeterministicAcrossConcurrency(t *testing.T) {
 	probes := openEndedProbes("alpha", "beta", "gamma")
 	ctx := context.Background()
@@ -191,10 +165,6 @@ func TestRunBenchmark_JudgeDeterministicAcrossConcurrency(t *testing.T) {
 	}
 }
 
-// TestRunBenchmark_GradesConcurrently proves grading actually overlaps rather
-// than running serially: a judge that blocks until every probe's Prefer call
-// has entered can only return if all of them run at once. If grading were
-// serial, the barrier never reaches N and the test fails on timeout.
 func TestRunBenchmark_GradesConcurrently(t *testing.T) {
 	const n = 4
 	probes := openEndedProbes("p1", "p2", "p3", "p4")
@@ -228,9 +198,6 @@ func TestRunBenchmark_GradesConcurrently(t *testing.T) {
 	}
 }
 
-// TestRunBenchmark_HardGradeErrorAborts: a judge_rubric Score failure is a hard
-// grade error, so the whole phase aborts (errgroup first-error) rather than
-// reporting a half-graded matrix.
 func TestRunBenchmark_HardGradeErrorAborts(t *testing.T) {
 	probes := []dsl.Probe{{ID: "j", Prompt: "q", Kind: dsl.RuleBased, Rules: []dsl.Rule{{
 		ID: "r", Severity: dsl.Critical, Checks: []dsl.Check{&dsl.JudgeRubric{Facts: []string{"f"}, PassScore: 50}},
@@ -242,9 +209,6 @@ func TestRunBenchmark_HardGradeErrorAborts(t *testing.T) {
 	}
 }
 
-// TestRunBenchmark_PreferenceErrorIsDropped: a preference is report-only, so a
-// failing Prefer must not abort — the probe keeps its Numbers and every other
-// probe survives, that probe just contributes no preference.
 func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
 	probes := openEndedProbes("alpha", "beta")
 	j := judge.StubJudge{PrefErr: errors.New("boom")}
@@ -262,9 +226,6 @@ func TestRunBenchmark_PreferenceErrorIsDropped(t *testing.T) {
 	_ = verdicts
 }
 
-// TestRunBenchmark_PlanProbeEndToEnd walks the whole plan path with a stub
-// judge: a kind: plan probe routes through the comparative path, produces a
-// report-only preference (no rule verdicts), and renders in the report.
 func TestRunBenchmark_PlanProbeEndToEnd(t *testing.T) {
 	probe := dsl.Probe{ID: "rollout", Prompt: "Plan the migration.", Kind: dsl.Plan}
 	j := judge.StubJudge{Pref: judge.Preference{

@@ -4,9 +4,6 @@ import "context"
 
 var _ Judge = StubJudge{}
 
-// StubJudge is a canned Judge for deterministic tests across packages (dsl,
-// runner, report). It never calls an LLM. Set ScoreFunc/PreferFunc for
-// per-input behavior, or the static fields for a fixed response.
 type StubJudge struct {
 	ScoreValue int
 	ScoreErr   error

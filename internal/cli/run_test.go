@@ -21,9 +21,6 @@ func TestTaskPrompt(t *testing.T) {
 	}
 }
 
-// TestJudgeFor_Comparative pins the gotcha: a plan corpus (NeedsJudge=true, no
-// judge_rubric rules) needs the judge, so --judge satisfies it and the default
-// (off) errors.
 func TestJudgeFor_Comparative(t *testing.T) {
 	probes := []dsl.Probe{{ID: "p", Prompt: "x", Kind: dsl.Plan}}
 	if _, err := judgeFor(probes, true); err != nil {
@@ -34,8 +31,6 @@ func TestJudgeFor_Comparative(t *testing.T) {
 	}
 }
 
-// TestDistinctRefs pins that worktrees are keyed by ref (ADR-0015): duplicates
-// collapse in first-seen order, so a same-ref Before/After yields one worktree.
 func TestDistinctRefs(t *testing.T) {
 	got := distinctRefs([]Env{{Ref: "a"}, {Ref: "a"}, {Ref: "b"}, {Ref: "a"}})
 	if len(got) != 2 || got[0] != "a" || got[1] != "b" {

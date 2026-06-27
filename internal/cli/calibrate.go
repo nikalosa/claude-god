@@ -79,10 +79,7 @@ Tighten or drop flaky rules before trusting a comparison. Never gates.`,
 			return err
 		}
 		defer cleanup()
-		// calibrate measures the noise floor, so it always draws fresh (the cache
-		// would replay frozen draws and report zero Disagreement); writes still
-		// land, growing the Sample pool. This is the role ADR-0016 folds into
-		// `assess --no-cache`.
+
 		verdicts, _, aggs, err := runBenchmark(ctx, probes, env, env, flagCalSamples, flagCalConcurrency, run, store, true, j, "")
 		if err != nil {
 			return err

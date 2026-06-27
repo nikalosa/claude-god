@@ -51,7 +51,7 @@ func TestGrade_MultiCheckAllMustPass(t *testing.T) {
 	rules := []Rule{
 		{ID: "compound", Severity: Critical, Checks: []Check{
 			&TextMatches{Pattern: regexp.MustCompile("(?i)string")},
-			&TextMatches{Pattern: regexp.MustCompile("(?i)drift")}, // not in text
+			&TextMatches{Pattern: regexp.MustCompile("(?i)drift")},
 		}},
 	}
 	got, err := Grade(ctx, "q", rec, rules, nil)
@@ -116,10 +116,6 @@ func TestGrade_PropagatesJudgeError(t *testing.T) {
 	}
 }
 
-// TestTextMatches_IgnoresJudge pins the determinism boundary: a regex check
-// must never touch the judge, so its result is identical with a nil judge and
-// with a judge that panics if called (ADR-0002: judge noise must not reach the
-// deterministic pattern path).
 func TestTextMatches_IgnoresJudge(t *testing.T) {
 	rec := &parser.RunRecord{FinalText: "stored as strings"}
 	c := &TextMatches{Pattern: regexp.MustCompile("(?i)string")}
@@ -137,8 +133,6 @@ func TestTextMatches_IgnoresJudge(t *testing.T) {
 	}
 }
 
-// TestGrade_RegexFailShortCircuitsBeforeJudge confirms a failing regex check
-// ordered before a judge check FAILs the rule without invoking the judge.
 func TestGrade_RegexFailShortCircuitsBeforeJudge(t *testing.T) {
 	rec := &parser.RunRecord{FinalText: "no keyword here"}
 	rules := []Rule{{ID: "r", Severity: Critical, Checks: []Check{
@@ -343,8 +337,6 @@ func TestLoadCorpus_BadRegex(t *testing.T) {
 	}
 }
 
-// TestLoadCorpus_ShippedCorpora guards the schema migration: the real shipped
-// corpora must still load, and every check must remain a regex (text_matches).
 func TestLoadCorpus_ShippedCorpora(t *testing.T) {
 	for _, path := range []string{
 		"../../.benchmark/corpus/self.yaml",
@@ -371,8 +363,6 @@ func TestLoadCorpus_ShippedCorpora(t *testing.T) {
 	}
 }
 
-// TestLoadCorpus_L2Example loads the shipped L2 example and confirms it carries
-// a judge-backed rule (so NeedsJudge would require --judge).
 func TestLoadCorpus_L2Example(t *testing.T) {
 	probes, err := LoadCorpus("../../examples/corpus/l2-smoke.yaml")
 	if err != nil {
@@ -395,8 +385,6 @@ func TestLoadCorpus_L2Example(t *testing.T) {
 	}
 }
 
-// TestLoadCorpus_PlanExample loads the shipped plan example and confirms it
-// carries a plan probe, so NeedsJudge requires a judge (run via --judge).
 func TestLoadCorpus_PlanExample(t *testing.T) {
 	probes, err := LoadCorpus("../../examples/corpus/plan-smoke.yaml")
 	if err != nil {

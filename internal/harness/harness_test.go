@@ -14,8 +14,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
-// initGitRepo makes a one-commit repo for the worktree-lifecycle tests (no
-// claude needed — Prepare/Close only touch git and the filesystem).
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -38,8 +36,6 @@ func initGitRepo(t *testing.T) string {
 	return repo
 }
 
-// TestPrepareClose pins the shared-worktree lifecycle (ADR-0015): Prepare checks
-// the ref out into a fresh tree; Close removes the tree and its tmpdir.
 func TestPrepareClose(t *testing.T) {
 	repo := initGitRepo(t)
 	wt, err := Prepare(context.Background(), PrepareOpts{TargetRepo: repo, Ref: "HEAD", NoMemSnapshot: true})
@@ -60,9 +56,6 @@ func TestPrepareClose(t *testing.T) {
 	}
 }
 
-// TestPrepareCloseMemory pins memory inject-once / remove-once (ADR-0015):
-// Prepare copies the source into the worktree's project slug, Close removes the
-// whole slug. HOME is redirected so the test never touches the real ~/.claude.
 func TestPrepareCloseMemory(t *testing.T) {
 	repo := initGitRepo(t)
 	home := t.TempDir()
@@ -90,9 +83,6 @@ func TestPrepareCloseMemory(t *testing.T) {
 	}
 }
 
-// TestHarness_Dogfood runs the full L1 harness against this repo on `main`.
-// Gated behind CLAUDE_BENCHMARK_DOGFOOD=1 because it shells out to a real
-// `claude -p` invocation (costs money, takes seconds).
 func TestHarness_Dogfood(t *testing.T) {
 	if os.Getenv("CLAUDE_BENCHMARK_DOGFOOD") != "1" {
 		t.Skip("set CLAUDE_BENCHMARK_DOGFOOD=1 to run")
@@ -102,7 +92,7 @@ func TestHarness_Dogfood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Walk up to repo root (test runs from internal/harness/).
+
 	for i := 0; i < 5; i++ {
 		if _, err := os.Stat(target + "/go.mod"); err == nil {
 			break
@@ -136,9 +126,6 @@ func TestHarness_Dogfood(t *testing.T) {
 	t.Logf("RunRecord:\n%s", rj)
 }
 
-// TestClaudeArgs pins the read-only + MCP flags: --strict-mcp-config is always
-// present (MCP is a controlled variable, never ambient), and --mcp-config is
-// added only when a config is given.
 func TestClaudeArgs(t *testing.T) {
 	has := func(args []string, want string) bool {
 		for _, a := range args {
@@ -188,8 +175,6 @@ func TestClaudeArgs(t *testing.T) {
 	}
 }
 
-// TestMCPConfig pins the resolution order: explicit config wins, else the
-// worktree's committed .mcp.json, else none.
 func TestMCPConfig(t *testing.T) {
 	if got := mcpConfig("/no/such/wt", Opts{MCPConfig: "X"}); got != "X" {
 		t.Errorf("explicit config must win, got %q", got)
@@ -212,9 +197,6 @@ func TestMCPConfig(t *testing.T) {
 	}
 }
 
-// TestSanitizedEnv pins that the launcher's Claude Code session/effort vars are
-// stripped (so a benchmarked run can't inherit the effort or session of whatever
-// started the tool) while PATH/HOME/auth pass through untouched.
 func TestSanitizedEnv(t *testing.T) {
 	in := []string{
 		"PATH=/usr/bin",
@@ -249,13 +231,6 @@ func TestSanitizedEnv(t *testing.T) {
 	}
 }
 
-// TestCheckMCPHealth pins both silent-false-negative bugs: a declared MCP server
-// that loads "disabled" (ambient ~/.claude.json by-name disable, not overridden by
-// --strict-mcp-config) and one that stays "pending" with zero tool calls (the
-// startup race under concurrency) must both fail the run rather than be graded as a
-// valid "server present" measurement. A declared server passes only when init says
-// "connected" or it made at least one mcp__<name>__* call (proof it loaded). No
-// declared servers pass (no MCP under test).
 func TestCheckMCPHealth(t *testing.T) {
 	call := func(server string) parser.ToolCall { return parser.ToolCall{Name: "mcp__" + server + "__search"} }
 	cases := []struct {
@@ -286,9 +261,6 @@ func TestCheckMCPHealth(t *testing.T) {
 	}
 }
 
-// TestDeclaredMCPServers pins that the declared-server set is recovered from both
-// an inline --mcp-config JSON and a config file, and that an empty config declares
-// nothing (so checkMCPHealth has nothing to assert).
 func TestDeclaredMCPServers(t *testing.T) {
 	if got := declaredMCPServers(""); got != nil {
 		t.Errorf("empty config must declare nothing, got %v", got)
@@ -308,8 +280,6 @@ func TestDeclaredMCPServers(t *testing.T) {
 	}
 }
 
-// TestMCPCallCounts pins that mcp__<server>__<tool> calls are tallied per server
-// and non-MCP or malformed names are ignored.
 func TestMCPCallCounts(t *testing.T) {
 	got := mcpCallCounts([]parser.ToolCall{
 		{Name: "Read"},
@@ -329,8 +299,6 @@ func TestMCPCallCounts(t *testing.T) {
 	}
 }
 
-// TestReadOnlyBashSettings pins the shape of the --settings JSON that wires the
-// PreToolUse Bash guard (no claude needed).
 func TestReadOnlyBashSettings(t *testing.T) {
 	s, err := readOnlyBashSettings()
 	if err != nil {

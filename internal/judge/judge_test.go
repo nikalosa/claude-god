@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// stubBackend returns canned Ask responses in call order, recording prompts.
 type stubBackend struct {
 	responses []string
 	calls     int
@@ -116,16 +115,13 @@ func TestScore_EmptyRubric(t *testing.T) {
 	}
 }
 
-// prefJSON builds an ordering verdict where pos1 vs pos2 winner is `winner`
-// (1 = pos1, 2 = pos2, 0 = tie); dimensions mirror the overall winner here.
 func prefJSON(winner int) string {
 	return fmt.Sprintf(`{"winner":%d,"concise":%d,"exhaustive":%d,"direct":%d,"reasoning":"x"}`,
 		winner, winner, winner, winner)
 }
 
 func TestPrefer_BothOrderingsAgree_BeforeWins(t *testing.T) {
-	// Ordering A: pos1=before,pos2=after; winner 1 -> before.
-	// Ordering B: pos1=after,pos2=before; winner 2 -> before.
+
 	j := New(&stubBackend{responses: []string{prefJSON(1), prefJSON(2)}})
 	p, err := j.Prefer(context.Background(), "q", "BEFORE", "AFTER")
 	if err != nil {
@@ -137,8 +133,7 @@ func TestPrefer_BothOrderingsAgree_BeforeWins(t *testing.T) {
 }
 
 func TestPrefer_OrderDependent_CollapsesToTie(t *testing.T) {
-	// Ordering A: winner 1 -> before. Ordering B: winner 1 -> after (pos1=after).
-	// The two orderings disagree (positional bias) -> tie.
+
 	j := New(&stubBackend{responses: []string{prefJSON(1), prefJSON(1)}})
 	p, err := j.Prefer(context.Background(), "q", "BEFORE", "AFTER")
 	if err != nil {
@@ -150,7 +145,7 @@ func TestPrefer_OrderDependent_CollapsesToTie(t *testing.T) {
 }
 
 func TestPrefer_TieInOneOrdering_IsTie(t *testing.T) {
-	// A: tie; B: winner 2 -> before. A side must win BOTH orderings, so -> tie.
+
 	j := New(&stubBackend{responses: []string{prefJSON(0), prefJSON(2)}})
 	p, err := j.Prefer(context.Background(), "q", "BEFORE", "AFTER")
 	if err != nil {
@@ -162,7 +157,7 @@ func TestPrefer_TieInOneOrdering_IsTie(t *testing.T) {
 }
 
 func TestPrefer_AfterWins(t *testing.T) {
-	// A: winner 2 -> after. B: winner 1 -> after (pos1=after).
+
 	j := New(&stubBackend{responses: []string{prefJSON(2), prefJSON(1)}})
 	p, err := j.Prefer(context.Background(), "q", "BEFORE", "AFTER")
 	if err != nil {

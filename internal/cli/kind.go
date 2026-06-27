@@ -8,11 +8,8 @@ import (
 	"github.com/nikalosa/claude-god/internal/dsl"
 )
 
-// allKinds is the default --kind value: every probe kind runs.
 const allKinds = "rule_based,open_ended,plan"
 
-// parseKinds splits the --kind CSV into the enabled probe-kind set. It selects
-// which probes run; it does not change grading.
 func parseKinds(s string) (map[dsl.ProbeKind]bool, error) {
 	set := map[dsl.ProbeKind]bool{}
 	for _, tok := range strings.Split(s, ",") {
@@ -33,8 +30,6 @@ func parseKinds(s string) (map[dsl.ProbeKind]bool, error) {
 	return set, nil
 }
 
-// filterByKind subsets the corpus to the selected kinds. An empty result errors
-// rather than running nothing, naming the kinds asked for.
 func filterByKind(probes []dsl.Probe, set map[dsl.ProbeKind]bool) ([]dsl.Probe, error) {
 	out := make([]dsl.Probe, 0, len(probes))
 	for _, p := range probes {

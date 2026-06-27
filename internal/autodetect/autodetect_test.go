@@ -24,7 +24,6 @@ func write(t *testing.T, dir, name, content string) {
 	}
 }
 
-// newRepo is a fresh repo on main with one commit (a clean default branch).
 func newRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -35,7 +34,6 @@ func newRepo(t *testing.T) string {
 	return dir
 }
 
-// Clean tree at the default branch has nothing to compare → error for --before.
 func TestResolve_CleanOnMain(t *testing.T) {
 	dir := newRepo(t)
 	_, err := Resolve(context.Background(), dir, "", "")
@@ -47,7 +45,6 @@ func TestResolve_CleanOnMain(t *testing.T) {
 	}
 }
 
-// Clean feature branch → Before = fork point (main tip), After = HEAD.
 func TestResolve_FeatureBranch(t *testing.T) {
 	dir := newRepo(t)
 	forkPoint := mustGit(t, dir, "rev-parse", "HEAD")
@@ -74,8 +71,6 @@ func TestResolve_FeatureBranch(t *testing.T) {
 	}
 }
 
-// Dirty tree → Before = HEAD, After = a temp commit capturing uncommitted edits
-// AND new untracked files, without disturbing the real index/HEAD/working tree.
 func TestResolve_Dirty(t *testing.T) {
 	dir := newRepo(t)
 	head := mustGit(t, dir, "rev-parse", "HEAD")
@@ -115,7 +110,6 @@ func TestResolve_Dirty(t *testing.T) {
 	}
 }
 
-// Overrides replace either side and skip auto-detection for that side.
 func TestResolve_Overrides(t *testing.T) {
 	dir := newRepo(t)
 	forkPoint := mustGit(t, dir, "rev-parse", "HEAD")

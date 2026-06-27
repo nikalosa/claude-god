@@ -1,8 +1,3 @@
-// Package runner orchestrates one probe through grading: a rule-based probe is
-// graded per-run and aggregated; an open-ended probe skips rule grading and is
-// compared head-to-head by the judge. It is the seam where the deterministic
-// grading (dsl, aggregator) meets the judge, kept out of the cobra CLI so the
-// branch logic stays testable with a stub judge.
 package runner
 
 import (
@@ -16,9 +11,6 @@ import (
 	"github.com/nikalosa/claude-god/internal/parser"
 )
 
-// PreferenceResult is the report-only outcome of one open-ended probe. It
-// carries no severity and no PASS/FAIL and never becomes a Verdict, so it can
-// never affect the exit code.
 type PreferenceResult struct {
 	ProbeID    string
 	Outcome    judge.Outcome
@@ -28,11 +20,6 @@ type PreferenceResult struct {
 	Reasoning  string
 }
 
-// GradeProbe grades one probe's before/after run records. It always returns an
-// AggregatedOutcome (median Numbers, plus per-rule majority vote for rule-based
-// probes). For a comparative probe (open_ended or plan) it additionally
-// compares a representative before/after answer (sample 0) via the judge and
-// returns a PreferenceResult; otherwise the preference is nil.
 func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.RunRecord, j judge.Judge) (aggregator.AggregatedOutcome, *PreferenceResult, error) {
 	beforeRuns, err := gradeRuns(ctx, probe, before, j)
 	if err != nil {
@@ -56,9 +43,7 @@ func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.Ru
 	}
 	pref, err := j.Prefer(ctx, probe.Prompt, before[0].FinalText, after[0].FinalText)
 	if err != nil {
-		// Preference is report-only. After the backend's own retries, a still-
-		// failing judge call must not discard a completed (expensive) run: drop
-		// just this probe's preference and keep its Numbers + every other probe.
+
 		fmt.Fprintf(os.Stderr, "warning: preference unavailable for %s (judge failed after retries): %v\n", probe.ID, err)
 		return agg, nil, nil
 	}
@@ -72,9 +57,6 @@ func GradeProbe(ctx context.Context, probe dsl.Probe, before, after []*parser.Ru
 	}, nil
 }
 
-// gradeRuns grades each run of one environment. Comparative probes (open_ended,
-// plan) carry no rules, so they produce empty results but still flow through
-// aggregation for their Numbers.
 func gradeRuns(ctx context.Context, probe dsl.Probe, records []*parser.RunRecord, j judge.Judge) ([]aggregator.Run, error) {
 	runs := make([]aggregator.Run, 0, len(records))
 	for _, rec := range records {

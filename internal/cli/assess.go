@@ -130,9 +130,6 @@ func assessRunE(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// judgeForAssess builds a Judge iff a rule carries a judge_rubric check. assess
-// never runs a Preference comparison, so comparative probes need no judge — only
-// an absolute rubric rule does (distinct from judgeFor, which the A/B path uses).
 func judgeForAssess(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	if !dsl.NeedsRubricJudge(probes) {
 		return nil, nil
@@ -143,11 +140,6 @@ func judgeForAssess(probes []dsl.Probe, judgeOn bool) (judge.Judge, error) {
 	return judge.New(judge.NewClaudeBackend()), nil
 }
 
-// runSingleEnv serves every probe's Sample pool on one ref from the Run cache,
-// running only the misses, then grades each probe with an empty After side:
-// rule_based probes grade absolutely, comparative probes skip the Preference
-// comparison (GradeProbe needs two answers) and keep only their Numbers. It
-// shares the cache pool machinery with runBenchmark (one side instead of two).
 func runSingleEnv(ctx context.Context, probes []dsl.Probe, env Env, samples, concurrency int, run runFunc, store *cache.Store, noCache bool, j judge.Judge) ([]aggregator.AggregatedOutcome, error) {
 	recs := make([][]*parser.RunRecord, len(probes))
 	pools, err := planPools(store, probes, samples, noCache, []side{{env, recs, "run"}})

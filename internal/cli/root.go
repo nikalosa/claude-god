@@ -1,4 +1,3 @@
-// Package cli wires the cobra command tree for claude-benchmark.
 package cli
 
 import (
@@ -8,8 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version is overridden at release time via -ldflags
-// -X github.com/nikalosa/claude-god/internal/cli.version=<tag> (see .goreleaser.yaml).
 var version = "dev"
 
 var rootCmd = &cobra.Command{
@@ -28,7 +25,6 @@ power users. See docs/PRD.md.`,
 	SilenceErrors: true,
 }
 
-// Execute runs the root command and exits non-zero on error.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

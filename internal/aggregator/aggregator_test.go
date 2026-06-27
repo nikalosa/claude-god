@@ -70,14 +70,13 @@ func TestAggregate_MajorityVoteAndDisagreement(t *testing.T) {
 	}
 	agg := Aggregate(po)
 
-	// Before: 2/3 PASS → PASS, disagreement
 	if !agg.Before.Rules[0].Pass {
 		t.Errorf("before majority should be PASS, got %+v", agg.Before.Rules[0])
 	}
 	if agg.Before.Rules[0].PassCount != 2 || agg.Before.Rules[0].Total != 3 || !agg.Before.Rules[0].Disagreement {
 		t.Errorf("before votes: %+v", agg.Before.Rules[0])
 	}
-	// After: 1/3 PASS → FAIL, disagreement
+
 	if agg.After.Rules[0].Pass {
 		t.Errorf("after majority should be FAIL, got %+v", agg.After.Rules[0])
 	}
@@ -93,8 +92,7 @@ func TestAggregate_MajorityVoteAndDisagreement(t *testing.T) {
 }
 
 func TestAggregate_MedianToolCalls(t *testing.T) {
-	// Before thrashes (many tool calls), after answers directly (few). The
-	// CodeGraph-style efficiency signal: the leaner env makes fewer tool calls.
+
 	po := ProbeOutcome{
 		Before: EnvOutcome{Runs: []Run{
 			mkRunTools(0.1, 100, 10, 1000, 10),
@@ -218,11 +216,10 @@ func TestFlaky(t *testing.T) {
 }
 
 func TestAggregate_InputOutputFromModelUsage(t *testing.T) {
-	// result.usage reports only the final turn; the true session total lives in
-	// modelUsage. Aggregation must sum modelUsage, not result.usage.
+
 	run := func() Run {
 		return Run{Record: &parser.RunRecord{
-			// Final-turn snapshot — must be IGNORED by the metric.
+
 			Usage: parser.Usage{InputTokens: 6000, OutputTokens: 200, CacheCreationInputTokens: 1000, CacheReadInputTokens: 3000},
 			ModelUsage: map[string]parser.ModelUsage{
 				"opus":  {InputTokens: 10000, OutputTokens: 1000, CacheCreationInputTokens: 2000, CacheReadInputTokens: 50000},
@@ -232,7 +229,7 @@ func TestAggregate_InputOutputFromModelUsage(t *testing.T) {
 	}
 	po := ProbeOutcome{Before: EnvOutcome{Runs: []Run{run(), run(), run()}}}
 	agg := Aggregate(po)
-	// input = (10000+2000+50000) + 500 = 62500 (NOT result.usage's 10000)
+
 	if agg.Before.MedianInputTok != 62500 {
 		t.Errorf("input median = %d, want 62500 (modelUsage aggregate)", agg.Before.MedianInputTok)
 	}

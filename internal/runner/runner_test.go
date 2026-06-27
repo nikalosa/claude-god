@@ -96,7 +96,7 @@ func TestGradeProbe_OpenEnded(t *testing.T) {
 	if len(agg.Before.Rules) != 0 || len(agg.After.Rules) != 0 {
 		t.Errorf("open-ended probe must have no rule results")
 	}
-	// Numbers (medians) must still be aggregated for open-ended probes.
+
 	if agg.Before.MedianCost == 0 || agg.Before.MedianInputTok == 0 {
 		t.Errorf("Numbers should be aggregated for open-ended: %+v", agg.Before)
 	}

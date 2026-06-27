@@ -29,7 +29,6 @@ func TestRenderMarkdown_EfficiencyFirstFoldedMatrix(t *testing.T) {
 	}}
 	md := RenderMarkdown(verdicts, prefs, aggs, 1)
 
-	// Efficiency (Numbers) leads, then the rule matrix, then the preference read.
 	idxEff := strings.Index(md, "## Efficiency (Numbers)")
 	idxRules := strings.Index(md, "## Rules")
 	idxPrefs := strings.Index(md, "## What reads better (open-ended)")
@@ -40,14 +39,12 @@ func TestRenderMarkdown_EfficiencyFirstFoldedMatrix(t *testing.T) {
 		t.Errorf("efficiency must lead, then rules, then preferences: eff=%d rules=%d prefs=%d", idxEff, idxRules, idxPrefs)
 	}
 
-	// The old gate-framed headline sections are gone.
 	for _, gone := range []string{"## Critical regressions", "## New passes", "## Other verdicts"} {
 		if strings.Contains(md, gone) {
 			t.Errorf("old section %q must be removed:\n%s", gone, md)
 		}
 	}
 
-	// One folded matrix carries every rule, with regression/new-pass demoted to a Status cell.
 	for _, want := range []string{"| Status |", "`stable_pass`", "`regressed`", "`newly_passes`", "`still_failing`", "regression", "new pass"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("folded matrix missing %q:\n%s", want, md)
@@ -94,8 +91,7 @@ func TestRenderMarkdown_PreferenceSection(t *testing.T) {
 	if start < 0 {
 		t.Fatalf("missing preference section:\n%s", md)
 	}
-	// Isolate the section (until the next "## " heading) and assert it carries
-	// no PASS/FAIL or severity — it is strictly report-only.
+
 	section := md[start+len(heading):]
 	if end := strings.Index(section, "\n## "); end >= 0 {
 		section = section[:end]
@@ -157,9 +153,6 @@ func TestRenderMarkdown_NoPreferenceSectionWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestRenderAssessment checks the single-env scorecard: per-rule PASS/FAIL with
-// no A/B framing, single-env Numbers (a Value column, no Δ), and comparative
-// probes listed as not graded.
 func TestRenderAssessment(t *testing.T) {
 	aggs := []aggregator.AggregatedOutcome{
 		{ProbeID: "rules_probe", Before: aggregator.AggregatedEnv{
@@ -198,7 +191,6 @@ func TestRenderAssessment(t *testing.T) {
 		t.Errorf("comparative not-graded list missing:\n%s", md)
 	}
 
-	// The scorecard section must carry no A/B framing: no Before/After/Status/Δ.
 	start := strings.Index(md, "## Scorecard")
 	section := md[start:]
 	if end := strings.Index(section[len("## Scorecard"):], "\n## "); end >= 0 {
@@ -211,8 +203,6 @@ func TestRenderAssessment(t *testing.T) {
 	}
 }
 
-// TestRenderAssessment_NumbersOnly: a corpus of only comparative probes has no
-// scorecard rows but still reports Numbers and the not-graded list.
 func TestRenderAssessment_NumbersOnly(t *testing.T) {
 	aggs := []aggregator.AggregatedOutcome{
 		{ProbeID: "design", Before: aggregator.AggregatedEnv{MedianCost: 0.3, MedianBaseCtx: 9000}},
@@ -226,9 +216,6 @@ func TestRenderAssessment_NumbersOnly(t *testing.T) {
 	}
 }
 
-// TestRenderDeltas_DurationAdvisory checks that Duration is flagged advisory
-// under concurrency and left clean at --concurrency 1 — the report must never
-// silently present an inflated timing number as comparable.
 func TestRenderDeltas_DurationAdvisory(t *testing.T) {
 	aggs := []aggregator.AggregatedOutcome{{
 		ProbeID: "p1",
@@ -247,9 +234,6 @@ func TestRenderDeltas_DurationAdvisory(t *testing.T) {
 	}
 }
 
-// TestRenderPerProbe checks the per-probe Numbers table: one row per probe with
-// before → after (Δ%) and a summed TOTAL row, so the dev sees which probe drives
-// cost and time.
 func TestRenderPerProbe(t *testing.T) {
 	aggs := []aggregator.AggregatedOutcome{
 		{ProbeID: "cheap_rule", Before: aggregator.AggregatedEnv{MedianCost: 0.10, MedianDurationMs: 20000, MedianToolCalls: 0}, After: aggregator.AggregatedEnv{MedianCost: 0.08, MedianDurationMs: 18000, MedianToolCalls: 0}},
@@ -265,11 +249,11 @@ func TestRenderPerProbe(t *testing.T) {
 			t.Errorf("per-probe table missing %q:\n%s", want, md)
 		}
 	}
-	// per-probe time direction must be visible: the design probe got slower After.
+
 	if !strings.Contains(md, "150000 → 170000 (+13.3%)") {
 		t.Errorf("per-probe duration cell not rendered as before → after (Δ%%):\n%s", md)
 	}
-	// TOTAL sums the medians: cost 2.10 → 1.48.
+
 	if !strings.Contains(md, "2.1000 → 1.4800") {
 		t.Errorf("TOTAL row not summed:\n%s", md)
 	}
