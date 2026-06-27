@@ -306,11 +306,15 @@ func runAttempt(ctx context.Context, run runFunc, env Env, prompt string, attemp
 
 // mcpRunConcurrencyCap bounds the run pool when an Environment declares MCP. The
 // headless client can start its turn before a stdio MCP server finishes its
-// handshake, and that race is only reliably won under low CPU contention (measured:
-// 2 concurrent wins, 6 loses). A modest cap keeps most runs winning on the first
-// try; the rare miss is detected (harness.checkMCPHealth) and serialized through the
-// retry gate. Correctness over speed — Duration is already advisory above 1.
-const mcpRunConcurrencyCap = 3
+// handshake; under enough CPU/IO contention the handshake loses and the turn runs
+// with no MCP tools. It was 3 under the per-run-worktree regime, where every run
+// also cold-started a heavy `git reset --hard` in the same window (measured then:
+// 2 wins, 6 loses). Once ADR-0015 hoisted checkout to once-per-ref the startup
+// window went quiet; re-measurement ran 12-way concurrent clean (26 runs, 0 misses),
+// so the cap is raised to 8 as a backstop for pathological cases (huge index / slow
+// disk / busy box). A miss is still detected (harness.checkMCPHealth) and serialized
+// through the retry gate — correctness over speed, Duration advisory above 1.
+const mcpRunConcurrencyCap = 8
 
 // mcpGuard derives the run-pool limit and retry gate for a set of Environments.
 // When any declares MCP it caps first-pass concurrency and returns a gate so

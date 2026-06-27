@@ -84,8 +84,10 @@ ways a declared server silently goes missing — both grade as a false "no diffe
    MCP handshake before turn 1, and no flag forces it. Each run cold-starts its own
    stdio server; under CPU contention from many concurrent runs the handshake loses the
    race, the turn starts with no MCP tools, init status stays `"pending"`, and zero
-   `mcp__*` calls are made. (Measured: 2 concurrent wins, 6 loses; the *server* boots in
-   ~0.2s even 6× concurrent — the starved *client* is the bottleneck, not the server.)
+   `mcp__*` calls are made. (Measured *pre-[ADR-0015](0015-shared-per-ref-worktree.md)*:
+   2 concurrent wins, 6 loses; the *server* boots in ~0.2s even 6× concurrent — the
+   starved *client* is the bottleneck, not the server. See the cap addendum below — that
+   contention included a per-run checkout storm that ADR-0015 has since removed.)
 
 **Detection (the only ground truth).** The stream has no post-init "connected" event;
 `mcp_servers` status appears once, in `system/init`. `"pending"` is ambiguous (it can
@@ -103,3 +105,18 @@ resolved later in the harness and is not visible to the pool, so the cap does no
 for that case (the detector still fails a missed run; supply MCP by flag for the
 capped-and-retried path). A shared, pre-warmed server (one boot, HTTP transport) would
 remove the race at full concurrency — deferred until the cap proves too slow.
+
+## Addendum — cap raised 3 → 8 after [ADR-0015](0015-shared-per-ref-worktree.md)
+
+The "2 wins, 6 loses" was measured under the per-run-worktree regime: every run
+cold-started its own `git worktree add` + `reset --hard` (~3.5s, disk-bound on a 13k-file
+target) **concurrently with** its MCP handshake — N runs meant N checkout storms thrashing
+the disk in the exact window the stdio handshake needed. [ADR-0015](0015-shared-per-ref-worktree.md)
+hoists checkout to once-per-ref *before* the pool starts, so the handshake now races a
+quiet disk and warm page cache. Re-measured against the same CodeGraph/PAM setup: two full
+waves of 12-way concurrency, **26 runs, 0 first-pass misses, 0 retries** — raw streams show
+`cgtest` `connected` at init and successful `mcp__cgtest__*` calls. So `mcpRunConcurrencyCap`
+is raised **3 → 8** (matching the default `--concurrency`, so MCP runs are no longer
+throttled below normal), kept only as a backstop for pathological cases (larger index,
+slower disk, busier machine). The detector + serialized retry remain the correctness net,
+so the worst case of the higher cap is an extra retry, never a silent miss.
