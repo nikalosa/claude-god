@@ -25,18 +25,43 @@ You get a report a human reads. You decide — it never gates. Invoke it with `/
 
 Each skill's deep doc: [config-bench](plugins/claude-god/skills/config-bench/SKILL.md) · [quizgen](plugins/claude-god/skills/quizgen/SKILL.md) · [config-refactor](plugins/claude-god/skills/config-refactor/SKILL.md).
 
+## Does it actually work? (case study)
+
+We ran a real A/B on [FastAPI](https://github.com/fastapi/fastapi): vanilla repo vs. the same repo plus a
+[graphify](https://github.com/safishamsi/graphify) code knowledge-graph (620 nodes, a per-module wiki Claude can read),
+across 8 architecture questions, 3 samples each.
+
+- **Input tokens −16.9%**, **tool-calls −7.6%**, quality **held** (0 rule regressions; 2 answers better / 4 tie / 1 worse).
+- Biggest win where navigation is hardest — tracing a request through `routing.py`: **−44% input, −32% tool-calls**.
+- Honest counter-example: one planning task read *more* (+90% tokens) for a more exhaustive answer. The tool shows the tradeoff instead of hiding it behind one number.
+
+Full methodology, per-probe numbers, and the raw report → [**docs/case-studies/fastapi-codegraph**](docs/case-studies/fastapi-codegraph/README.md).
+
 ## Install
 
-### As a Claude Code plugin (recommended)
+Two ways in — same skills either way. The **skills** channel works with any skills-compatible agent; the **plugin** channel is Claude Code only.
+
+### Standalone skills — any agent (recommended)
+
+```sh
+npx skills add nikalosa/claude-god                  # pick skills interactively
+npx skills add nikalosa/claude-god -s config-bench  # one specific skill
+npx skills add nikalosa/claude-god --all            # install all of them
+npx skills add nikalosa/claude-god -l               # list without installing
+```
+
+Installs into `~/.claude/skills` (or `.claude/skills` for the current project) via the [`skills`](https://github.com/vercel-labs/skills) CLI ([skills.sh](https://skills.sh)). **No CLI to install up front:** the first time you benchmark, if `claude-benchmark` isn't on your PATH the **`install-cli`** skill bootstraps it automatically (checksum-verified prebuilt binary — no Go toolchain), then `config-bench` runs.
+
+### Claude Code plugin
 
 ```sh
 /plugin marketplace add nikalosa/claude-god
 /plugin install claude-god@claude-god
 ```
 
-This installs all three skills. On the first benchmark run, the `claude-benchmark` CLI is **auto-downloaded** (checksum-verified) — no Go toolchain required.
+Claude Code only. Same skills, managed by the plugin system; the `claude-benchmark` CLI auto-downloads on the first benchmark run.
 
-**Prerequisites:** an authenticated `claude` CLI and `git` on your PATH. **No API key** — the tool reuses your existing Claude login.
+**Prerequisites (either channel):** an authenticated `claude` CLI and `git` on your PATH. **No API key** — the tool reuses your existing Claude login.
 
 ### CLI only
 
@@ -137,7 +162,10 @@ internal/
   judge/        LLM grading (rubric check + preference comparison) over claude -p
   aggregator/   N samples -> median stats + majority-vote outcomes
   report/       markdown (default) + JSON rendering
-plugins/claude-god/     the Claude Code plugin: the three skills + the bin/ wrapper
+.claude-plugin/         marketplace.json — makes this repo a Claude Code plugin marketplace
+plugins/claude-god/     the plugin: the four skills + the bin/ wrapper
+  skills/<name>/        the skills (single source of truth) — also installable standalone:
+                        `npx skills add` discovers them through the marketplace manifest
 ```
 
 ## License
